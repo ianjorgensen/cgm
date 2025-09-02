@@ -30,6 +30,10 @@
   .bottombar { position: sticky; bottom: 0; background:#fff; border-top:1px solid #eee; z-index: 10; padding:8px 0; }
   /* reverted: compact summary/bottom bar removed */
   .container { max-width:1200px; margin:0 auto; }
+  @media (max-width: 768px){
+    .content-row { display:flex !important; flex-direction: column; gap:16px; }
+    .content-row > div { flex: none !important; min-width: 0; width: 100%; }
+  }
   .footer { font-size:12px; color:#555; text-align:center; margin:12px 0; }
   .mini-help { font-size:12px; color:#555; text-align:center; margin-top:6px; }
   .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index: 20; }
@@ -44,7 +48,7 @@
 
   <div class="container">
     <!-- Two-column layout: Left (1/4) TIR+Summary, Right (3/4) AGP+Chart -->
-    <div style="display:flex; gap:16px; align-items:flex-start; margin-top:12px;">
+    <div class="content-row" style="display:flex; gap:16px; align-items:flex-start; margin-top:12px;">
     <!-- Left column (1/4) -->
     <div style="flex:1 1 0; min-width:0;">
       <div id="summary" style="border:1px solid #e6e6e6; border-radius:8px; padding:10px; background:#fff;">
@@ -87,7 +91,7 @@
         <li><span class="kbd">W</span>/<span class="kbd">S</span>: zoom in/out</li>
         <li><span class="kbd">←</span>/<span class="kbd">→</span>: pan by 25% window</li>
         <li><span class="kbd">Shift</span> + <span class="kbd">←</span>/<span class="kbd">→</span>: jump a full window</li>
-        <li><span class="kbd">1</span>/<span class="kbd">2</span>/<span class="kbd">3</span>/<span class="kbd">4</span>/<span class="kbd">5</span>: set window to 1d / 7d / 14d / 1m / Full</li>
+        <li><span class="kbd">1</span>/<span class="kbd">2</span>/<span class="kbd">3</span>/<span class="kbd">4</span>/<span class="kbd">5</span>/<span class="kbd">6</span>: set window to 1d / 7d / 14d / 1m / 3m / Full</li>
       </ul>
       <div style="text-align:right; margin-top:8px;"><button id="closeHelp">Close</button></div>
     </div>
@@ -95,7 +99,7 @@
   <!-- Sticky bottom bar: mini overview time picker -->
   <div class="bottombar">
     <div class="container">
-      <svg id="mini" height="140" style="width:100%;"></svg>
+      <svg id="mini" height="120" style="width:100%;"></svg>
       <div class="mini-help"><span class="kbd">?</span> to view keyboard shortcuts</div>
     </div>
   </div>
@@ -321,7 +325,8 @@ window.addEventListener("keydown",e=>{
     if (key === '2'){ setSpan(7*DAY); e.preventDefault(); return; }
     if (key === '3'){ setSpan(14*DAY); e.preventDefault(); return; }
     if (key === '4'){ setSpan(30*DAY); e.preventDefault(); return; }
-    if (key === '5'){ setDomainViaBrush(+tDomain[0], +tDomain[1]); e.preventDefault(); return; }
+    if (key === '5'){ setSpan(90*DAY); e.preventDefault(); return; }
+    if (key === '6'){ setDomainViaBrush(+tDomain[0], +tDomain[1]); e.preventDefault(); return; }
   }
 
   // Shift + Arrow or '<' '>' keys = jump by full window
