@@ -12,7 +12,7 @@
     position:absolute; pointer-events:none; background:#fff; border:1px solid #ddd;
     padding:4px 6px; border-radius:4px; font-size:11px; transform:translate(-50%,-120%);
   }
-  #summary { margin: 42px 0px; }
+  #summary { margin: 42px 0px; padding: 10px 0 !important;}
   #tir { margin-top:20px; text-align:left; }
   #tir svg { display:block; margin:0; overflow: visible; }
   .pct { font-weight:600; font-size:12px; }
@@ -26,11 +26,12 @@
   .layout { display:grid; grid-template-columns: 320px 1fr; gap:16px; align-items:start; max-width:1200px; }
   .topbar { position: sticky; top: 0; background:#fff; z-index: 10; padding:8px 0; border-bottom:1px solid #eee; }
   .topbar .actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
-  .sticky-mini { position: sticky; top: var(--topbar-h, 44px); z-index: 9; }
   .topbar-row { display:flex; gap:12px; align-items:center; }
+  .bottombar { position: sticky; bottom: 0; background:#fff; border-top:1px solid #eee; z-index: 10; padding:8px 0; }
   /* reverted: compact summary/bottom bar removed */
   .container { max-width:1200px; margin:0 auto; }
   .footer { font-size:12px; color:#555; text-align:center; margin:12px 0; }
+  .mini-help { font-size:12px; color:#555; text-align:center; margin-top:6px; }
   .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index: 20; }
   .modal { background:#fff; border-radius:8px; padding:14px 16px; width:min(640px, 92vw); box-shadow:0 10px 30px rgba(0,0,0,0.2); }
   .modal h3 { margin:0 0 8px; font-size:14px; }
@@ -39,11 +40,7 @@
 </style>
 
 <body>
-  <div class="topbar">
-    <div class="container">
-      <svg id="mini" height="120" style="width:100%;"></svg>
-    </div>
-  </div>
+  <!-- sticky mini picker at bottom (moved from top) -->
 
   <div class="container">
     <!-- Two-column layout: Left (1/4) TIR+Summary, Right (3/4) AGP+Chart -->
@@ -63,10 +60,6 @@
     <!-- Right column (3/4) -->
     <div style="flex:3 1 0; min-width:0;">
       <div id="agpSection">
-      <div style="font-weight:600; margin-bottom:4px; display:flex; gap:10px; align-items:baseline;">
-        <span>AGP — Selected Period</span>
-        <span id="agpMeta" style="font-weight:400; color:#555; font-size:12px;"></span>
-      </div>
       <svg id="agpSvg" style="width:100%; height:280px;"></svg>
       </div>
 
@@ -78,8 +71,11 @@
     </div>
     </div>
 
-    <!-- Footer row -->
-    <div class="footer"><span class="kbd">?</span> to view keyboard shortcuts</div>
+    <!-- Footer row: AGP title + days used -->
+    <div class="footer" style="font-weight:600; display:flex; gap:10px; justify-content:center; align-items:baseline;">
+      <span>AGP — Selected Period</span>
+      <span id="agpMeta" style="font-weight:400; color:#555; font-size:12px;"></span>
+    </div>
   </div>
 
   <!-- Keyboard Shortcuts Modal -->
@@ -96,9 +92,13 @@
       <div style="text-align:right; margin-top:8px;"><button id="closeHelp">Close</button></div>
     </div>
   </div>
+  <!-- Sticky bottom bar: mini overview time picker -->
+  <div class="bottombar">
+    <div class="container">
+      <svg id="mini" height="140" style="width:100%;"></svg>
+      <div class="mini-help"><span class="kbd">?</span> to view keyboard shortcuts</div>
+    </div>
   </div>
-
-  
 
 <script type="module">
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
@@ -162,6 +162,19 @@ function renderLegends(){
 }
 renderLegends();
 
+// ---- helpers: ordinal date formatters ----
+const timeHM = d3.timeFormat("%H:%M");
+const monthShort = d3.timeFormat("%b");
+function ordinal(n){
+  const j=n%10, k=n%100;
+  if(j===1 && k!==11) return `${n}st`;
+  if(j===2 && k!==12) return `${n}nd`;
+  if(j===3 && k!==13) return `${n}rd`;
+  return `${n}th`;
+}
+function fmtAxisDate(d){ return `${monthShort(d)} ${ordinal(d.getDate())}`; }
+function fmtTooltip(d){ return `${monthShort(d)} ${ordinal(d.getDate())} ${d.getFullYear()} - ${timeHM(d)}`; }
+
 // ---- draw series (as colored dots) ----
 function drawSeries(){
   const pxLeft=M.l,pxRight=W-M.r;
@@ -209,7 +222,7 @@ function drawSeries(){
   ctx.beginPath();ctx.moveTo(M.l,H-M.b+0.5);ctx.lineTo(W-M.r,H-M.b+0.5);ctx.stroke();
   x.ticks(6).forEach(t=>{ const xp=Math.round(x(t));
     ctx.beginPath();ctx.moveTo(xp,H-M.b);ctx.lineTo(xp,H-M.b+5);ctx.stroke();
-    ctx.fillText(d3.timeFormat("%b %d")(t), xp-12, H-M.b+16);
+    ctx.fillText(fmtAxisDate(t), xp-18, H-M.b+16);
   });
   ctx.beginPath();ctx.moveTo(M.l-0.5,M.t);ctx.lineTo(M.l-0.5,H-M.b);ctx.stroke();
   y.ticks(6).forEach(v=>{ const yp=Math.round(y(v));
@@ -244,7 +257,8 @@ canvas.addEventListener("mousemove",e=>{
   const tval=x.invert(px).getTime();
   const idx=Math.min(values.length-1,Math.max(0,Math.round((tval-time[0])/stepMs)));
   tip.style.display="block"; tip.style.left=px+"px"; tip.style.top=py+"px";
-  tip.textContent=`${d3.timeFormat("%Y-%m-%d %H:%M")(new Date(time[idx]))} — ${values[idx].toFixed(1)} ${units}`;
+  const td = new Date(time[idx]);
+  tip.textContent=`${fmtTooltip(td)} — ${values[idx].toFixed(1)} ${units}`;
 });
 canvas.addEventListener("mouseleave",()=>tip.style.display="none");
 
@@ -391,13 +405,24 @@ window.addEventListener('keydown', (e)=>{
   if (e.key === 'Escape'){ const ov=document.getElementById('helpOverlay'); if(ov && ov.style.display==='flex'){ ov.style.display='none'; e.preventDefault(); } }
 });
 
+// URL hash helpers for sharing current selection
+function updateHash(d0, d1){
+  const s = `t=${Math.round(d0)},${Math.round(d1)}`;
+  const target = `#${s}`;
+  if (location.hash !== target){
+    history.replaceState(null, '', target);
+  }
+}
+
 // helper to keep mini brush in sync with x-domain
 function setDomainViaBrush(d0, d1){
   if (typeof miniX !== 'undefined' && typeof brush !== 'undefined' && typeof brushG !== 'undefined') {
     brushG.call(brush.move, [miniX(d0), miniX(d1)]);
+    // brush handler will call draw + updateHash
   } else {
     x.domain([d0, d1]);
     drawSeries();
+    updateHash(d0, d1);
   }
 }
 
@@ -411,17 +436,38 @@ const miniData=[]; for(let i=0;i<values.length;i+=stride) miniData.push({t:new D
 miniSvg.append("path").attr("d",d3.line().x(d=>miniX(d.t)).y(d=>miniY(d.g))(miniData))
   .attr("fill","none").attr("stroke","#222");
 const brush=d3.brushX().extent([[M.l,10],[miniW-M.r,miniH-20]]).on("brush end",({selection})=>{
-  if(!selection)return; const[a,b]=selection.map(miniX.invert); x.domain([+a,+b]); drawSeries();
+  if(!selection)return; const[a,b]=selection.map(miniX.invert); x.domain([+a,+b]); drawSeries(); updateHash(+a,+b);
 });
 const brushG = miniSvg.append("g").call(brush);
-// initial selection: show first third
-brushG.call(brush.move,[M.l, M.l + (miniW - M.l - M.r)/3]);
 
-// mini x-axis with months (visible, inside bounds)
-const monthFmt = d3.timeFormat("%b '%y");
+// initialize selection from URL hash (t=startMs,endMs) or default to last 14 days
+function applyHashSelection(){
+  const m = (location.hash||'').match(/t=(\d+),(\d+)/);
+  if (m){
+    let d0 = +m[1], d1 = +m[2];
+    const min=+tDomain[0], max=+tDomain[1];
+    if (isNaN(d0)||isNaN(d1)||d0>=d1){ d0 = Math.max(min, max-14*24*60*60*1000); d1 = max; }
+    d0 = Math.max(min, Math.min(max, d0));
+    d1 = Math.max(min, Math.min(max, d1));
+    setDomainViaBrush(d0, d1);
+  } else {
+    const max = +tDomain[1];
+    const min = +tDomain[0];
+    const d0 = Math.max(min, max - 14*24*60*60*1000);
+    const d1 = max;
+    setDomainViaBrush(d0, d1);
+  }
+}
+applyHashSelection();
+window.addEventListener('hashchange', applyHashSelection);
+
+// mini x-axis with months at the start of each month, label as short month only
+const monthFmt = d3.timeFormat("%b");
+const monthTicks = d3.timeMonths(new Date(tDomain[0]), new Date(tDomain[1]));
 const miniAxis = d3.axisBottom(miniX)
-  .ticks(d3.timeMonth.every(1))
+  .tickValues(monthTicks)
   .tickFormat(monthFmt)
+  .tickPadding(6)
   .tickSizeOuter(0)
   .tickSizeInner(3);
 const miniAxisG = miniSvg.append("g").attr("transform", `translate(0,${miniH-8})`).call(miniAxis);
@@ -431,7 +477,7 @@ miniAxisG.selectAll("text")
   .attr("text-anchor","middle")
   .attr("transform", null)
   .attr("dx", null)
-  .attr("dy", null);
+  .attr("dy", "0.6em");
 
 // (no month axis in the AGP-initial version)
 
@@ -544,10 +590,10 @@ function doUpdateAGP(idx0, idx1){
     byMin[bin].push(v);
   }
 
-  // update meta label
+  // update meta label (display one fewer day)
   const nDays = daysSet.size || 0;
   const meta = document.getElementById('agpMeta');
-  if (meta) meta.textContent = nDays ? `Days used: ${nDays}` : '';
+  if (meta) meta.textContent = nDays ? `Days used: ${Math.max(0, nDays-1)}` : '';
 
   const q = (arr,p)=>{
     if (!arr.length) return NaN;
@@ -630,15 +676,28 @@ function updateSummary(idx0, idx1){
 
 // ---- Show/hide AGP based on selected window length ----
 function updateAGPVisibility(idx0, idx1){
-  const minSpanMs = 7*24*60*60*1000; // 7 days
-  const spanMs = Math.max(0, (idx1 - idx0 + 1)) * stepMs;
-  const show = spanMs >= minSpanMs;
+  // Count unique days in the current selection
+  const dayMs = 24*60*60*1000;
+  const daysSet = new Set();
+  for (let i=idx0;i<=idx1;i++){
+    const d = new Date(time[i]);
+    const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    daysSet.add(midnight);
+  }
+  const nDays = daysSet.size || 0;
+  const show = nDays >= 7; // require at least 7 days to render AGP
+
+  // Hide content but preserve layout height so the chart position doesn't shift
   const sec = document.getElementById('agpSection');
-  if (sec) {
-    // Hide content but preserve layout height so the chart position doesn't shift
+  if (sec){
     sec.style.visibility = show ? '' : 'hidden';
     sec.style.pointerEvents = show ? '' : 'none';
   }
+
+  // Always show the days count in the footer, even when hidden
+  const meta = document.getElementById('agpMeta');
+  if (meta) meta.textContent = `Days used: ${Math.max(0, nDays-1)}`;
+
   return show;
 }
 </script>
