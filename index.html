@@ -292,7 +292,8 @@ canvas.addEventListener('wheel', (e)=>{
     // zoom using wheel: negative deltaY zoom in
     const k = Math.exp(e.deltaY * 0.001);
     const center = (d0 + d1) / 2;
-    const newSpan = Math.max(stepMs*20, span * k);
+    const total = (+tDomain[1]) - (+tDomain[0]);
+    const newSpan = Math.min(Math.max(stepMs*20, span * k), total);
     setDomainViaBrush(center - newSpan/2, center + newSpan/2);
   } else {
     // pan proportional to deltaY (trackpad or wheel)
@@ -371,7 +372,8 @@ window.addEventListener("keydown",e=>{
   const factor = k === "w" ? 0.5 : 2;
   const [d0,d1] = x.domain().map(d=>+d); // ensure numeric ms
   const center = (d0 + d1) / 2;
-  const newSpan = Math.max(stepMs*20, (d1 - d0) * factor);
+  const total = (+tDomain[1]) - (+tDomain[0]);
+  const newSpan = Math.min(Math.max(stepMs*20, (d1 - d0) * factor), total);
   setDomainViaBrush(center - newSpan/2, center + newSpan/2);
   e.preventDefault();
 });
@@ -421,6 +423,14 @@ function updateHash(d0, d1){
 
 // helper to keep mini brush in sync with x-domain
 function setDomainViaBrush(d0, d1){
+  // clamp to overall data domain
+  const min = +tDomain[0], max = +tDomain[1];
+  if (d0 < min) { d1 += (min - d0); d0 = min; }
+  if (d1 > max) { d0 -= (d1 - max); d1 = max; }
+  // ensure non-inverted and within bounds
+  d0 = Math.max(min, Math.min(max, d0));
+  d1 = Math.max(min, Math.min(max, d1));
+  if (d1 <= d0) d1 = Math.min(max, d0 + stepMs);
   if (typeof miniX !== 'undefined' && typeof brush !== 'undefined' && typeof brushG !== 'undefined') {
     brushG.call(brush.move, [miniX(d0), miniX(d1)]);
     // brush handler will call draw + updateHash
