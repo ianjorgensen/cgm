@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<title>CGM Viewer — Keyboard Zoom + Vertical TIR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 16px; color:#111; }
+  #chart { border:1px solid #e5e5e5; background:#fff; }
+  #mini  { border:1px solid #eee; background:#fafafa; }
+  .legend { margin-left:8px; color:#555; }
+  .tooltip {
+    position:absolute; pointer-events:none; background:#fff; border:1px solid #ddd;
+    padding:4px 6px; border-radius:4px; font-size:11px; transform:translate(-50%,-120%);
+  }
+  #tir { margin-top:20px; }
+  .pct { font-weight:600; font-size:12px; }
+  .goal { font-size:10px; fill:#666; }
+</style>
+
+<body>
+  <button id="reset">Reset zoom</button>
+  <span class="legend">Drag to pan. Press W (zoom in) / S (zoom out).</span>
+
+  <div style="position:relative; margin-top:10px;">
+    <canvas id="chart" width="1200" height="380"></canvas>
+    <div id="tip" class="tooltip" style="display:none;"></div>
+  </div>
+
+  <svg id="mini" width="1200" height="100" style="margin-top:10px;"></svg>
+
+  <!-- vertical TIR -->
+  <div id="tir"></div>
+
+<script type="module">
+import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+import { units, t0, stepMs, glucose } from "./cgm_data.js";
+
+const W=1200,H=380,M={t:20,r:50,b:30,l:50};
+const canvas=document.getElementById("chart");
+const ctx=canvas.getContext("2d",{alpha:false});
+const tip=document.getElementById("tip");
+
+const tStart=new Date(t0).getTime();
+const time=Float64Array.from({length:glucose.length},(_,i)=>tStart+i*stepMs);
+const values=Float64Array.from(glucose);
+const tDomain=[time[0],time[time.length-1]];
+const yDomain=d3.extent(values);
+
+const x=d3.scaleTime().domain(tDomain).range([M.l,W-M.r]);
+const y=d3.scaleLinear().domain(yDomain).nice().range([H-M.b,M.t]);
+
+const isMmol = /mmol/i.test(units);
+const TH = isMmol
+  ? { vlow:3.0, low:3.9, high:10.0, vhigh:13.9, label:"mmol/L" }
+  : { vlow:54,  low:70,  high:180,  vhigh:250,  label:"mg/dL" };
+
+// ---- draw series ----
+function drawSeries(){
+  const pxLeft=M.l,pxRight=W-M.r;
+  const t0v=x.invert(pxLeft).getTime(), t1v=x.invert(pxRight).getTime();
+  const idx0=Math.max(0,Math.floor((t0v-time[0])/stepMs));
+  const idx1=Math.min(values.length-1,Math.ceil((t1v-time[0])/stepMs));
+  const span=Math.max(1,idx1-idx0), pixels=pxRight-pxLeft;
+  const bucket=Math.max(1,Math.floor(span/pixels));
+
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
+
+  ctx.strokeStyle="#f0f0f0"; ctx.lineWidth=1;
+  for(const t of x.ticks(10)){ const xp=Math.round(x(t));
+    ctx.beginPath(); ctx.moveTo(xp,M.t); ctx.lineTo(xp,H-M.b); ctx.stroke(); }
+  for(const g of y.ticks(6)){ const yp=Math.round(y(g));
+    ctx.beginPath(); ctx.moveTo(M.l,yp); ctx.lineTo(W-M.r,yp); ctx.stroke(); }
+
+  ctx.strokeStyle="#000"; ctx.lineWidth=1;
+  for(let i=idx0;i<=idx1;i+=bucket){
+    const ii=Math.min(i+bucket-1,idx1);
+    let vmin=Infinity,vmax=-Infinity,tmid=time[i+Math.floor((ii-i)/2)];
+    for(let k=i;k<=ii;k++){ const v=values[k]; if(v<vmin)vmin=v; if(v>vmax)vmax=v; }
+    const xp=x(new Date(tmid));
+    ctx.beginPath(); ctx.moveTo(xp,y(vmin)); ctx.lineTo(xp,y(vmax)); ctx.stroke();
+  }
+
+  ctx.strokeStyle="#000"; ctx.fillStyle="#000"; ctx.font="10px system-ui";
+  ctx.beginPath();ctx.moveTo(M.l,H-M.b+0.5);ctx.lineTo(W-M.r,H-M.b+0.5);ctx.stroke();
+  x.ticks(6).forEach(t=>{ const xp=Math.round(x(t));
+    ctx.beginPath();ctx.moveTo(xp,H-M.b);ctx.lineTo(xp,H-M.b+5);ctx.stroke();
+    ctx.fillText(d3.timeFormat("%b %d")(t), xp-12, H-M.b+16);
+  });
+  ctx.beginPath();ctx.moveTo(M.l-0.5,M.t);ctx.lineTo(M.l-0.5,H-M.b);ctx.stroke();
+  y.ticks(6).forEach(v=>{ const yp=Math.round(y(v));
+    ctx.beginPath();ctx.moveTo(M.l-5,yp);ctx.lineTo(M.l,yp);ctx.stroke();
+    ctx.fillText(v.toFixed(0), M.l-35, yp+3);
+  });
+  ctx.fillText(`CGM (${units})`, M.l, M.t-6);
+
+  updateTIR(idx0, idx1);
+}
+drawSeries();
+
+// tooltip
+canvas.addEventListener("mousemove",e=>{
+  const rect=canvas.getBoundingClientRect();
+  const px=e.clientX-rect.left, py=e.clientY-rect.top;
+  if(px<M.l||px>W-M.r||py<M.t||py>H-M.b){tip.style.display="none";return;}
+  const tval=x.invert(px).getTime();
+  const idx=Math.min(values.length-1,Math.max(0,Math.round((tval-time[0])/stepMs)));
+  const dt=new Date(time[idx]);
+  tip.style.display="block"; tip.style.left=px+"px"; tip.style.top=py+"px";
+  tip.textContent=`${d3.timeFormat("%Y-%m-%d %H:%M")(dt)} — ${values[idx].toFixed(1)} ${units}`;
+});
+canvas.addEventListener("mouseleave",()=>tip.style.display="none");
+
+// drag pan
+let isDown=false,startX,startDom;
+canvas.addEventListener("mousedown",e=>{isDown=true;startX=e.clientX;startDom=x.domain();});
+window.addEventListener("mouseup",()=>isDown=false);
+window.addEventListener("mousemove",e=>{
+  if(!isDown)return;
+  const dx=e.clientX-startX;
+  const [d0,d1]=startDom;
+  const scale=(d1-d0)/(W-M.l-M.r);
+  x.domain([d0-dx*scale,d1-dx*scale]);
+  drawSeries();
+});
+
+// keyboard zoom W/S
+window.addEventListener("keydown",e=>{
+  const k=e.key.toLowerCase();
+  if(k!=="w"&&k!=="s")return;
+  const factor=k==="w"?0.5:2;
+  const [d0,d1]=x.domain(); const center=(d0+d1)/2;
+  const newSpan=Math.max(stepMs*20,(d1-d0)*factor);
+  x.domain([center-newSpan/2,center+newSpan/2]);
+  drawSeries();
+});
+document.getElementById("reset").onclick=()=>{x.domain(tDomain);drawSeries();};
+
+// mini overview
+const miniH=100,miniSvg=d3.select("#mini");
+const miniX=d3.scaleTime().domain(tDomain).range([M.l,W-M.r]);
+const miniY=d3.scaleLinear().domain(y.domain()).range([miniH-20,10]);
+const stride=Math.max(1,Math.floor(values.length/(W-M.l-M.r)));
+const miniData=[]; for(let i=0;i<values.length;i+=stride) miniData.push({t:new Date(time[i]),g:values[i]});
+miniSvg.append("path").attr("d",d3.line().x(d=>miniX(d.t)).y(d=>miniY(d.g))(miniData))
+  .attr("fill","none").attr("stroke","#222");
+const brush=d3.brushX().extent([[M.l,10],[W-M.r,miniH-20]]).on("brush end",({selection})=>{
+  if(!selection)return; const[a,b]=selection.map(miniX.invert); x.domain([+a,+b]); drawSeries();
+});
+miniSvg.append("g").call(brush).call(g=>g.call(brush.move,[M.l,M.l+(W-M.l-M.r)/3]));
+
+// ---- vertical TIR ----
+function updateTIR(idx0,idx1){
+  const n=Math.max(1,idx1-idx0+1);
+  let cVL=0,cL=0,cT=0,cH=0,cVH=0;
+  for(let i=idx0;i<=idx1;i++){
+    const v=values[i];
+    if(v<TH.vlow)cVL++;
+    else if(v<TH.low)cL++;
+    else if(v<=TH.high)cT++;
+    else if(v<=TH.vhigh)cH++;
+    else cVH++;
+  }
+  const pct=x=>Math.round(1000*x/n)/10;
+
+  const bands=[
+    {name:"Very High", pct:pct(cVH), color:"#f46d43", goal:"<5%"},
+    {name:"High",      pct:pct(cH),  color:"#fdae61", goal:"<25%"},
+    {name:"Target",    pct:pct(cT),  color:"#1a9850", goal:"≥70%"},
+    {name:"Low",       pct:pct(cL),  color:"#e34a33", goal:"<4%"},
+    {name:"Very Low",  pct:pct(cVL), color:"#b30000", goal:"<1%"}
+  ];
+
+  const Wb=300,Hb=300,Mb={t:20,r:80,b:30,l:100};
+  const svg=d3.select("#tir").selectAll("svg").data([0]).join("svg")
+    .attr("width",Wb).attr("height",Hb);
+
+  svg.selectAll("*").remove();
+
+  const scaleY=d3.scaleLinear().domain([0,100]).range([Hb-Mb.b,Mb.t]);
+
+  let acc=0;
+  bands.forEach(b=>{
+    const y0=scaleY(acc), y1=scaleY(acc+b.pct);
+    svg.append("rect").attr("x",Mb.l).attr("y",y1)
+      .attr("width",60).attr("height",y0-y1)
+      .attr("fill",b.color);
+    svg.append("text").attr("x",Mb.l+70).attr("y",(y0+y1)/2+4)
+      .attr("class","pct").text(`${b.name} ${b.pct}% (goal ${b.goal})`);
+    acc+=b.pct;
+  });
+
+  svg.append("text").attr("x",Mb.l).attr("y",12).text(`Time in Range (current view) — ${units}`);
+}
+</script>
+</body>
+</html>

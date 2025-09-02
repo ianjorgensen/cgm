@@ -1,0 +1,170 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>CGM Pan Matrix Profile (D3)</title>
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 16px; }
+  .row { margin-bottom: 16px; }
+  .axis text { font-size: 10px; }
+  .motif { stroke-width: 1.5px; fill: none; }
+</style>
+
+<select id="lenSelect"></select>
+<span id="status"></span>
+
+<div id="line" class="row"></div>
+<div id="heat" class="row"></div>
+<div id="motifs" class="row"></div>
+
+<script type="module">
+import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+import { units, t0, stepMs, glucose } from "./cgm_data.js"; // put file alongside this html
+
+const W = 1100, H1 = 180, H2 = 320, H3 = 120, M = {t:20,r:20,b:30,l:40};
+const status = d3.select("#status");
+const lenSelect = d3.select("#lenSelect");
+
+// Rebuild uniform time grid from t0 + step
+const tStart = new Date(t0);
+const grid = Array.from({length: glucose.length}, (_, i) => ({
+  t: new Date(tStart.getTime() + i*stepMs),
+  g: +glucose[i]
+}));
+
+// ----- WebWorker (approx Pan Matrix Profile) -----
+const worker = new Worker(URL.createObjectURL(new Blob([`
+  function rollingStats(x, m) {
+    const n=x.length, mean=new Float64Array(n-m+1), std=new Float64Array(n-m+1);
+    const ps=new Float64Array(n+1), ps2=new Float64Array(n+1);
+    for (let i=0;i<n;i++){ ps[i+1]=ps[i]+x[i]; ps2[i+1]=ps2[i]+x[i]*x[i]; }
+    for (let i=0;i<=n-m;i++){
+      const s=ps[i+m]-ps[i], s2=ps2[i+m]-ps2[i];
+      const mu=s/m, v=Math.max(1e-12, s2/m - mu*mu);
+      mean[i]=mu; std[i]=Math.sqrt(v);
+    }
+    return {mean,std};
+  }
+  function znormDist2(x, i, y, j, m, statsX, statsY){
+    let dot=0;
+    for (let k=0;k<m;k++) dot += x[i+k]*y[j+k];
+    const muX=statsX.mean[i], muY=statsY.mean[j];
+    const sX=statsX.std[i],  sY=statsY.std[j];
+    const corr = (dot - m*muX*muY) / (m*sX*sY + 1e-12);
+    const dist2 = 2*m*(1 - Math.max(-1, Math.min(1, corr)));
+    return dist2;
+  }
+  function distProfile(x, m, q, stats){
+    const n=x.length, N=n-m+1, prof=new Float64Array(N).fill(Infinity);
+    const ex = Math.floor(m/2);
+    for (let i=0;i<N;i++){
+      if (Math.abs(i-q)<=ex) continue;
+      prof[i]=znormDist2(x,i,x,q,m,stats,stats);
+    }
+    return prof;
+  }
+  function approxMP(x, m, k=64, seed=1337){
+    const N=x.length-m+1;
+    const stats=rollingStats(x, m);
+    const mp=new Float64Array(N).fill(Infinity);
+    let s=seed>>>0; const rnd=()=> (s=(1664525*s+1013904223)>>>0)/2**32;
+    for (let t=0;t<k;t++){
+      const q = Math.floor(rnd()*N);
+      const dp = distProfile(x, m, q, stats);
+      for (let i=0;i<N;i++) if (dp[i]<mp[i]) mp[i]=dp[i];
+    }
+    return mp;
+  }
+  onmessage = (e)=>{
+    const {series, lens, k} = e.data;
+    const x = Float64Array.from(series);
+    const result = [];
+    for (const m of lens){
+      const mp = approxMP(x, m, k);
+      result.push({m, mp: Array.from(mp)});
+      postMessage({progress:true, m});
+    }
+    postMessage({done:true, pmp: result});
+  };
+`], {type:"application/javascript"})));
+
+// choose motif lengths (samples). 5-min cadence -> 12=1h, 24=2h, … 288=24h
+const lens = [12, 18, 24, 36, 48, 72, 96, 120, 144, 192, 288];
+lenSelect.selectAll("option").data(lens).join("option")
+  .attr("value", d=>d).text(d=>`m=${d} (${(d*5/60).toFixed(1)}h)`);
+
+status.text(" crunching…");
+const series = grid.map(d=>d.g);
+worker.postMessage({series, lens, k: 64});
+
+const pmp = await new Promise(res=>{
+  worker.onmessage = (e)=>{
+    if (e.data.progress) status.text(` computing m=${e.data.m}…`);
+    if (e.data.done) { status.text(" done"); res(e.data.pmp); }
+  };
+});
+
+// ---------- render line ----------
+const x = d3.scaleTime().domain(d3.extent(grid, d=>d.t)).range([M.l, W-M.r]);
+const y = d3.scaleLinear().domain(d3.extent(grid, d=>d.g)).nice().range([H1-M.b, M.t]);
+
+const svg1 = d3.select("#line").append("svg").attr("width", W).attr("height", H1);
+svg1.append("path").datum(grid).attr("d",
+  d3.line().x(d=>x(d.t)).y(d=>y(d.g))
+).attr("fill","none").attr("stroke","currentColor");
+svg1.append("g").attr("transform",`translate(0,${H1-M.b})`).call(d3.axisBottom(x));
+svg1.append("g").attr("transform",`translate(${M.l},0)`).call(d3.axisLeft(y));
+svg1.append("text").attr("x",M.l).attr("y",12).text(`CGM (${units})`);
+
+// ---------- heatmap ----------
+const timeN = series.length;
+const cellW = Math.max(1, Math.floor((W-M.l-M.r)/timeN));
+const rowsH = lens.length;
+const cellH = Math.max(2, Math.floor((H2-M.t-M.b)/rowsH));
+const svg2 = d3.select("#heat").append("svg").attr("width", W).attr("height", H2);
+
+const flat = [];
+const maxV = d3.max(pmp, r => d3.max(r.mp));
+const minV = d3.min(pmp, r => d3.min(r.mp));
+const color = d3.scaleSequential().domain([maxV, minV]).interpolator(d3.interpolateTurbo);
+
+pmp.forEach((row, j)=>{
+  const N = timeN - row.m + 1;
+  for (let i=0;i<timeN;i++){
+    const v = i<N ? row.mp[i] : row.mp[N-1];
+    flat.push({i, j, v});
+  }
+});
+
+svg2.append("g").selectAll("rect").data(flat).join("rect")
+  .attr("x", d=>M.l + d.i*cellW)
+  .attr("y", d=>M.t + d.j*cellH)
+  .attr("width", cellW)
+  .attr("height", cellH)
+  .attr("fill", d=>color(d.v));
+
+svg2.append("g").attr("transform",`translate(${M.l},0)`)
+  .call(d3.axisLeft(d3.scalePoint(lens, [M.t, M.t + rowsH*cellH])).tickFormat((d,i)=>`m=${lens[i]}`));
+svg2.append("g").attr("transform",`translate(0,${H2-M.b})`).call(d3.axisBottom(x));
+svg2.append("text").attr("x",M.l).attr("y",12).text("Pan Matrix Profile (lower = stronger motif)");
+
+// ---------- motif profile for selected m ----------
+const svg3 = d3.select("#motifs").append("svg").attr("width", W).attr("height", H3);
+const y3 = d3.scaleLinear().domain([0, maxV]).range([H3-M.b, M.t]);
+const mpLine = d3.line().x((d,i)=>x(grid[i].t)).y(d=>y3(d));
+
+function drawMotifs(m){
+  const row = pmp.find(r=>r.m==m);
+  svg3.selectAll("*").remove();
+  svg3.append("path").datum(row.mp).attr("d", mpLine).attr("class","motif").attr("stroke","currentColor");
+  svg3.append("g").attr("transform",`translate(0,${H3-M.b})`).call(d3.axisBottom(x).ticks(6));
+  svg3.append("g").attr("transform",`translate(${M.l},0)`).call(d3.axisLeft(y3).ticks(4));
+  svg3.append("text").attr("x",M.l).attr("y",12).text(`Matrix Profile for m=${m}`);
+  const idx = d3.range(row.mp.length).sort((a,b)=>row.mp[a]-row.mp[b]).slice(0,2);
+  svg1.selectAll(".mark").remove();
+  svg1.selectAll(".mark").data(idx).join("line")
+    .attr("class","mark")
+    .attr("x1", i=>x(grid[i].t)).attr("x2", i=>x(grid[i].t))
+    .attr("y1", M.t).attr("y2", H1-M.b).attr("stroke","red").attr("stroke-dasharray","3,3");
+}
+drawMotifs(+lenSelect.property("value") || lens[0]);
+lenSelect.on("change", ()=>drawMotifs(+lenSelect.property("value")));
+</script>
