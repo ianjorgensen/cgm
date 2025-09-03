@@ -642,6 +642,8 @@ function renderFullRange(){
   svg.append('g').attr('transform',`translate(${m.l},0)`).call(yAxis)
     .selectAll('text').attr('font-size',10);
 
+  // (reverted) keep existing y-axis only
+
   // Hover tooltip (dedicated fixed tooltip)
   const tipEl = document.getElementById('tipFull');
   const bisect = d3.bisector(d=>d.t).left;
@@ -680,7 +682,7 @@ function renderFullRange(){
     })
     .on('mouseleave', ()=>{ tipEl.style.display='none'; });
 
-  // no brush navigation here to keep this view lightweight and stable
+  // (reverted) no brush on full-range
 }
 renderFullRange();
 

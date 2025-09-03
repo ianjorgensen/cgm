@@ -48,8 +48,11 @@
   /* Make the mini brush selection more visible */
   #mini .selection { fill: #f7c6d9; fill-opacity: 0.45; stroke: none; }
   #mini .handle { stroke: none; fill: #f7c6d9; fill-opacity: 0.30; }
+  /* Make mini display-only (disable interaction) */
+  #mini .overlay, #mini .selection, #mini .handle { pointer-events: none; cursor: default; }
   /* Match brush style on full-range chart */
-  /* (reverted) no custom brush styling on full-range */
+  #fullRange .selection { fill: #f7c6d9; fill-opacity: 0.45; stroke: none; }
+  #fullRange .handle { stroke: none; fill: #f7c6d9; fill-opacity: 0.30; }
 </style>
 
 <body>
@@ -642,6 +645,23 @@ function renderFullRange(){
   svg.append('g').attr('transform',`translate(${m.l},0)`).call(yAxis)
     .selectAll('text').attr('font-size',10);
 
+  // Bottom x-axis like mini: adaptive months with year on January
+  const months = d3.timeMonths(d3.timeMonth.floor(new Date(tDomain[0])), new Date(tDomain[1]));
+  const fmtM = d3.timeFormat('%b');
+  const fmtY = d3.timeFormat("'%y");
+  const avail = Math.max(60, (Wf - m.l - m.r));
+  const maxTicks = Math.max(2, Math.floor(avail / 40));
+  const step = Math.max(1, Math.ceil(months.length / maxTicks));
+  const tickMonths = months.filter((_,i)=> i % step === 0);
+  const axisB = d3.axisBottom(xF)
+    .tickValues(tickMonths)
+    .tickFormat(d=> d.getMonth()===0 ? `${fmtM(d)} ${fmtY(d)}` : fmtM(d))
+    .tickPadding(6)
+    .tickSizeOuter(0)
+    .tickSizeInner(3);
+  svg.append('g').attr('transform',`translate(0,${Hf-m.b})`).call(axisB)
+    .selectAll('text').attr('font-size',10);
+
   // Hover tooltip (dedicated fixed tooltip)
   const tipEl = document.getElementById('tipFull');
   const bisect = d3.bisector(d=>d.t).left;
@@ -680,7 +700,36 @@ function renderFullRange(){
     })
     .on('mouseleave', ()=>{ tipEl.style.display='none'; });
 
-  // no brush navigation here to keep this view lightweight and stable
+  // Brush navigation (same rules as mini: 1d min, 1y max)
+  const fullBrush = d3.brushX().handleSize(3)
+    .extent([[m.l, m.t],[Wf-m.r, Hf-m.b]])
+    .on('end', ({selection})=>{
+      if (!selection) return;
+      let [a,b] = selection.map(xF.invert);
+      const minSpan = 24*60*60*1000; // 1 day
+      const maxSpan = 365*24*60*60*1000; // 1 year
+      let d0 = +a, d1 = +b;
+      let span = d1 - d0;
+      if (span < minSpan){
+        const c = (d0 + d1) / 2;
+        d0 = Math.max(+tDomain[0], Math.min(+tDomain[1] - minSpan, c - minSpan/2));
+        d1 = Math.min(+tDomain[1], d0 + minSpan);
+        brushG.call(fullBrush.move, [xF(d0), xF(d1)]);
+        return;
+      }
+      if (span > maxSpan){
+        const c = (d0 + d1) / 2;
+        d0 = Math.max(+tDomain[0], Math.min(+tDomain[1] - maxSpan, c - maxSpan/2));
+        d1 = Math.min(+tDomain[1], d0 + maxSpan);
+        brushG.call(fullBrush.move, [xF(d0), xF(d1)]);
+        return;
+      }
+      setDomainViaBrush(d0, d1);
+    });
+  const brushG = svg.append('g').call(fullBrush);
+  // initialize brush to current domain
+  const [cd0, cd1] = x.domain().map(d=>+d);
+  brushG.call(fullBrush.move, [xF(cd0), xF(cd1)]);
 }
 renderFullRange();
 
