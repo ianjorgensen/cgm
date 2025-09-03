@@ -112,12 +112,7 @@
   <!-- Sticky bottom bar: mini overview time picker -->
   <div class="bottombar">
     <div class="container">
-      <!-- Hide mini brush; keep DOM for scale calculations -->
-      <svg id="mini" height="140" style="width:100%; display:none;"></svg>
-      <!-- Daily TIR stripes (one column per day) in footer -->
-      <div id="dailyTirWrap" style="margin-top:8px;">
-        <canvas id="dailyTir" style="width:100%; display:block;"></canvas>
-      </div>
+      <svg id="mini" height="140" style="width:100%;"></svg>
       <div class="mini-help"><span class="kbd">?</span> to view keyboard shortcuts</div>
     </div>
   </div>
@@ -141,7 +136,6 @@ const tip=document.getElementById("tip");
 const tStart=new Date(t0).getTime();
 const time=Float64Array.from({length:glucose.length},(_,i)=>tStart+i*stepMs);
 const values=Float64Array.from(glucose);
-
 const tDomain=[time[0],time[time.length-1]];
 const yDomain=d3.extent(Array.from(values).filter(v=>Number.isFinite(v) && v>=0)) || [0,10];
 
@@ -224,8 +218,6 @@ function drawSeries(){
     const showAGP = updateAGPVisibility(idx0, idx1);
     if (showAGP) updateAGP(idx0, idx1);
     updateSummary(idx0, idx1);
-    // Also refresh Daily TIR to reflect selection overlay even when chart is hidden
-    renderDailyTir();
     return;
   }
 
@@ -295,8 +287,6 @@ function drawSeries(){
   const showAGP = updateAGPVisibility(idx0, idx1);
   if (showAGP) updateAGP(idx0, idx1);
   updateSummary(idx0, idx1);
-  // keep daily TIR overlay in sync with current selection
-  renderDailyTir();
 }
 drawSeries();
 
@@ -309,7 +299,6 @@ function handleResize(){
     drawSeries();
     // fullRange removed
   }
-  renderDailyTir();
 }
 window.addEventListener('resize', handleResize);
 
@@ -534,8 +523,6 @@ function setDomainViaBrush(d0, d1){
 const miniH=120, miniSvg=d3.select("#mini");
 const miniW = (miniSvg.node() && miniSvg.node().getBoundingClientRect().width) || 1200;
 const miniX=d3.scaleTime().domain(tDomain).range([M.l,miniW-M.r]);
-// expose for functions defined earlier that render after mini init
-globalThis.miniX = miniX;
 // Show percent TIR like fullRange: 0..100
 const miniY=d3.scaleLinear().domain([0,100]).range([miniH-20,10]);
 // Build per-day percent TIR across full dataset (same as fullRange)
@@ -553,14 +540,8 @@ const daysMini = Array.from(byDayMini.entries()).sort((a,b)=>a[0]-b[0]).map(([t,
   const pct = rec.valid ? (rec.targ/rec.valid*100) : NaN;
   return { t:new Date(t + dayMs_m/2), pct: active>=50 ? pct : NaN };
 });
-// smooth mini line (monotone interpolation)
-const miniLine = d3.line()
-  .defined(d=>Number.isFinite(d.pct))
-  .x(d=>miniX(d.t))
-  .y(d=>miniY(d.pct))
-  .curve(d3.curveMonotoneX);
 miniSvg.append("path")
-  .attr("d", miniLine(daysMini))
+  .attr("d", d3.line().defined(d=>Number.isFinite(d.pct)).x(d=>miniX(d.t)).y(d=>miniY(d.pct))(daysMini))
   .attr("fill","none").attr("stroke",COLORS.targ).attr("stroke-width",1.2);
 // y-axis: 0%, 50%, 100%
 miniSvg.append('g')
@@ -721,326 +702,6 @@ renderMiniAxis();
 
 // Full-range removed — mini now shows daily TIR % and handles navigation
 
-// ---- Daily TIR stripes (stacked per-day distribution) ----
-function renderDailyTir(){
-  const cvs = document.getElementById('dailyTir');
-  if (!cvs) return;
-  // Ensure mini scale is ready (defined later in the file)
-  const miniScale = globalThis.miniX;
-  if (!miniScale) return;
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  // Match mini chart's rendered size
-  const miniEl = document.getElementById('mini');
-  const miniBox = miniEl ? miniEl.getBoundingClientRect() : {width:0, height:0};
-  const cssW = Math.max(1, miniBox.width || (cvs.getBoundingClientRect().width || 1200));
-  const cssHFull = Math.max(1, miniBox.height || (parseFloat(miniEl?.getAttribute('height')) || 140));
-  const cssH = Math.round(cssHFull * 2/3); // make Daily TIR 2/3 of mini height
-  // ensure CSS height mirrors target height
-  cvs.style.height = cssH + 'px';
-  // Ensure the shared mini scale matches the Daily TIR width
-  const s = globalThis.miniX; if (s) s.range([M.l, cssW - M.r]);
-  // resize for crisp rendering
-  if (cvs.width !== Math.floor(cssW * dpr)) cvs.width = Math.floor(cssW * dpr);
-  if (cvs.height !== Math.floor(cssH * dpr)) cvs.height = Math.floor(cssH * dpr);
-  const ctx2 = cvs.getContext('2d');
-  ctx2.setTransform(dpr,0,0,dpr,0,0);
-  ctx2.clearRect(0,0,cssW,cssH);
-  // reserve a bottom strip for the X axis labels (outside the plot area)
-  const AXH = 20; // axis label band height
-  const Hplot = Math.max(1, cssH - AXH);
-
-  const dayMs = 24*60*60*1000;
-  const mUTC = (t)=>{ const d=new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
-  // aggregate counts per UTC midnight (stable across DST)
-  const byDay = new Map();
-  for (let i=0;i<values.length;i++){
-    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
-    const ds = mUTC(time[i]);
-    let rec = byDay.get(ds);
-    if (!rec) { rec = {valid:0, vl:0, l:0, t:0, h:0, vh:0}; byDay.set(ds, rec); }
-    rec.valid++;
-    if (v < TH.vlow) rec.vl++; else if (v < TH.low) rec.l++; else if (v <= TH.high) rec.t++; else if (v <= TH.vhigh) rec.h++; else rec.vh++;
-  }
-  if (byDay.size === 0) return;
-
-  // Lay out exactly over the mini's time domain and scale (UTC days)
-  const dom0 = +tDomain[0];
-  const dom1 = +tDomain[1];
-  const d0 = mUTC(dom0);
-  const d1Start = mUTC(dom1);
-  const days = [];
-  for (let t=d0; t<=d1Start; t+=dayMs) days.push(t);
-  const nDays = days.length;
-
-  const H2 = cssH;
-
-  const samplesPerDay = Math.max(1, Math.round(dayMs/stepMs));
-  // Pastel palette for Daily TIR (softer than main COLORS)
-  const DCLR = {
-    vlow: '#e57373',  // deeper soft red
-    low:  '#ff9e80',  // deeper peach
-    targ: '#86c89d',  // darker soft green
-    high: '#ffcc80',  // deeper light orange
-    vhigh:'#ff8a65'   // deeper coral
-  };
-  // Draw columns aligned to mini's x-scale and plot area margins
-  for (let i=0;i<nDays;i++){
-    const ds = days[i];
-    let x0 = Math.floor(miniScale(ds));
-    let x1 = Math.ceil(miniScale(ds + dayMs));
-    // clamp to canvas bounds to ensure last day is visible
-    x0 = Math.max(0, Math.min(cssW, x0));
-    x1 = Math.max(0, Math.min(cssW, x1));
-    const w = Math.max(1, x1 - x0);
-    const r = byDay.get(ds);
-    if (!r || !r.valid){
-      // No data for this day — light background band to preserve alignment
-      ctx2.fillStyle = '#eee';
-      ctx2.globalAlpha = 1;
-      ctx2.fillRect(x0, 0, w, Hplot);
-      continue;
-    }
-    const active = r.valid / samplesPerDay; // 0..1
-    // Slightly stronger opacity overall; boost Target band more for readability
-    const alphaBase = active >= 0.5 ? 0.7 : 0.3;
-    const alphaTarget = active >= 0.5 ? 0.85 : 0.5;
-    const fr = {
-      vl: r.vl / r.valid,
-      l:  r.l  / r.valid,
-      t:  r.t  / r.valid,
-      h:  r.h  / r.valid,
-      vh: r.vh / r.valid,
-    };
-    let y0 = 0;
-    const drawSeg = (color, frac, a)=>{
-      const h = Math.round(frac * Hplot);
-      if (h <= 0) return;
-      ctx2.fillStyle = color;
-      ctx2.globalAlpha = a;
-      ctx2.fillRect(x0, y0, w, h);
-      y0 += h;
-    };
-    drawSeg(DCLR.vlow, fr.vl, alphaBase);
-    drawSeg(DCLR.low,  fr.l,  alphaBase);
-    drawSeg(DCLR.targ, fr.t,  alphaTarget);
-    drawSeg(DCLR.high, fr.h, alphaBase);
-    drawSeg(DCLR.vhigh,fr.vh, alphaBase);
-    ctx2.globalAlpha = 1;
-  }
-
-  // expose layout + data for interactions
-  window.__dailyTir = { days, nDays, width: cssW, height: cssH, byDay, dayMs, samplesPerDay, start: d0 };
-
-  // overlay: highlight selected range with blue fill over plot area
-  try {
-    const [sel0, sel1] = x.domain().map(d=>+d);
-    const left = Math.max(0, Math.min(cssW, Math.round(miniScale(sel0))));
-    const right = Math.max(0, Math.min(cssW, Math.round(miniScale(sel1))));
-    ctx2.save();
-    // fill selected area in blue (much darker opacity)
-    ctx2.fillStyle = 'rgba(30, 136, 229, 0.45)';
-    if (right > left) ctx2.fillRect(left, 0, right - left, Hplot);
-    // selection edge lines in stronger blue
-    ctx2.strokeStyle = '#1e88e5';
-    ctx2.lineWidth = 1.5;
-    ctx2.beginPath();
-    ctx2.moveTo(left + 0.5, 0.5); ctx2.lineTo(left + 0.5, Hplot - 0.5);
-    ctx2.moveTo(right - 0.5, 0.5); ctx2.lineTo(right - 0.5, Hplot - 0.5);
-    ctx2.stroke();
-    ctx2.restore();
-  } catch {}
-
-  // X-axis months (like mini): adaptive month ticks with year on January (drawn below plot)
-  try {
-    const start = new Date(tDomain[0]);
-    const end = new Date(tDomain[1]);
-    const months = d3.timeMonths(d3.timeMonth.floor(start), end);
-    const fmtM = d3.timeFormat('%b');
-    const fmtY = d3.timeFormat("'%y");
-    const avail = Math.max(60, (cssW - (M.l + M.r)));
-    const maxTicks = Math.max(2, Math.floor(avail / 40));
-    const step = Math.max(1, Math.ceil(months.length / maxTicks));
-    const tickMonths = months.filter((_,i)=> i % step === 0);
-    ctx2.save();
-    ctx2.strokeStyle = '#bbb';
-    ctx2.fillStyle = '#444';
-    ctx2.lineWidth = 1;
-    ctx2.font = '10px system-ui';
-    // baseline
-    const yAxis = Hplot + 0.5;
-    ctx2.beginPath();
-    ctx2.moveTo(M.l, yAxis);
-    ctx2.lineTo(cssW - M.r, yAxis);
-    ctx2.stroke();
-    // ticks and labels
-    tickMonths.forEach(d=>{
-      const xp = Math.round(miniScale(d));
-      if (xp < M.l || xp > cssW - M.r) return;
-      ctx2.beginPath();
-      ctx2.moveTo(xp, yAxis);
-      ctx2.lineTo(xp, yAxis + 5);
-      ctx2.stroke();
-      const label = d.getMonth()===0 ? `${fmtM(d)} ${fmtY(d)}` : fmtM(d);
-      ctx2.fillText(label, xp - 12, yAxis + 14);
-    });
-    ctx2.restore();
-  } catch {}
-
-  // no hover overlay canvas
-}
-
-// initial render
-renderDailyTir();
-
-// Interactions: hover tooltip and click-to-zoom on a day
-(function bindDailyTirEvents(){
-  const cvs = document.getElementById('dailyTir');
-  const tipEl = document.getElementById('tipFull');
-  if (!cvs || !tipEl) return;
-  // no hover highlight overlay
-  let isDrag = false, downX = 0, moved = false;
-  let suppressClickNext = false;
-  let dragMode = null; // 'new' | 'resize-l' | 'resize-r' | 'move'
-  let selStart = null; // [d0,d1] at drag start
-  const miniScale = ()=> (globalThis.miniX);
-  const dayMs = 24*60*60*1000;
-  const toUtcMid = (t)=>{ const d=new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
-  function pickDay(mx){
-    const st = window.__dailyTir; if (!st) return null;
-    const rect = cvs.getBoundingClientRect();
-    const t = +miniX.invert(mx);
-    const idx = Math.max(0, Math.min(st.nDays-1, Math.floor((t - st.start)/st.dayMs)));
-    const x0 = Math.round(miniX(st.start + idx*st.dayMs));
-    return { idx, x0 };
-  }
-  function onMove(ev){
-    const st = window.__dailyTir; if (!st) return;
-    const rect = cvs.getBoundingClientRect();
-    const mx = ev.clientX - rect.left;
-    const my = ev.clientY - rect.top;
-    if (mx < 0 || my < 0 || mx >= rect.width || my >= rect.height){ tipEl.style.display='none'; return; }
-
-    // dragging selection: update brush domain live
-    if (isDrag && miniScale()){
-      moved = moved || Math.abs(mx - downX) > 3;
-      const scale = miniScale();
-      let [d0, d1] = selStart || x.domain().map(d=>+d);
-      if (dragMode === 'new'){
-        const x0 = Math.min(downX, mx);
-        const x1 = Math.max(downX, mx);
-        const t0 = +scale.invert(x0);
-        const t1 = +scale.invert(x1);
-        d0 = toUtcMid(t0);
-        d1 = toUtcMid(t1);
-        if (d1 <= d0) d1 = d0 + dayMs;
-      } else if (dragMode === 'resize-l'){
-        const t = +scale.invert(mx);
-        d0 = Math.min(toUtcMid(t), d1 - dayMs);
-      } else if (dragMode === 'resize-r'){
-        const t = +scale.invert(mx);
-        d1 = Math.max(toUtcMid(t) + dayMs, d0 + dayMs);
-      } else if (dragMode === 'move'){
-        const tDown = +scale.invert(downX);
-        const tNow = +scale.invert(mx);
-        const delta = tNow - tDown;
-        const span = d1 - d0;
-        let nd0 = d0 + delta;
-        let nd1 = nd0 + span;
-        // snap start to UTC midnight
-        nd0 = toUtcMid(nd0);
-        nd1 = nd0 + span;
-        d0 = nd0; d1 = nd1;
-      }
-      setDomainViaBrush(d0, d1);
-      tipEl.style.display='none';
-      return;
-    }
-    const pick = pickDay(mx); if (!pick){ tipEl.style.display='none'; return; }
-    const ds = st.days[pick.idx];
-    const r = st.byDay.get(ds) || {valid:0, vl:0, l:0, t:0, h:0, vh:0};
-    const d = new Date(ds);
-    const label = `${monthShort(d)} ${ordinal(d.getDate())} ${d.getFullYear()}`;
-    const pct = (n)=> (r.valid? (100*n/r.valid).toFixed(0) : '0');
-    const activePct = r.valid ? (100*r.valid/st.samplesPerDay).toFixed(0) : '0';
-    const targPct = pct(r.t);
-    tipEl.textContent = `${label} — Data:${activePct}% • Target:${targPct}%`;
-    tipEl.style.display='block';
-    const w = Math.max(1, Math.round((globalThis.miniX||((t)=>t))(ds + st.dayMs)) - pick.x0);
-    tipEl.style.left = (rect.left + pick.x0 + Math.min(w, 40)) + 'px';
-    tipEl.style.top  = (rect.top + my - 10) + 'px';
-
-    // no hover highlight drawing
-  }
-  function onLeave(){ if (tipEl) tipEl.style.display='none'; }
-  function onDown(ev){
-    const rect = cvs.getBoundingClientRect();
-    downX = ev.clientX - rect.left;
-    isDrag = true; moved = false;
-    const scale = miniScale();
-    dragMode = 'new'; selStart = x.domain().map(d=>+d);
-    if (scale){
-      const [s0, s1] = x.domain().map(d=>+d);
-      const left = Math.round(scale(s0));
-      const right = Math.round(scale(s1));
-      const near = 6;
-      if (Math.abs(downX - left) <= near) { dragMode = 'resize-l'; }
-      else if (Math.abs(downX - right) <= near) { dragMode = 'resize-r'; }
-      else if (downX > left && downX < right) { dragMode = 'move'; }
-    }
-    document.body.style.userSelect = 'none';
-    ev.preventDefault();
-  }
-  function onUp(ev){
-    if (!isDrag){ return; }
-    isDrag = false; dragMode = null; selStart = null;
-    document.body.style.userSelect = '';
-    if (!moved){
-      // fall back to single-day select at pointer
-      onClick(ev);
-    }
-    else {
-      // suppress the synthetic click event after a drag
-      suppressClickNext = true;
-      setTimeout(()=>{ suppressClickNext = false; }, 0);
-    }
-  }
-  function onClick(ev){
-    if (suppressClickNext){ ev.preventDefault(); return; }
-    const st = window.__dailyTir; if (!st) return;
-    const rect = cvs.getBoundingClientRect();
-    const mx = ev.clientX - rect.left;
-    const pick = pickDay(mx); if (!pick) return;
-    const ds = st.days[pick.idx];
-    setDomainViaBrush(ds, ds + st.dayMs);
-  }
-  cvs.addEventListener('mousemove', onMove);
-  cvs.addEventListener('mouseleave', onLeave);
-  cvs.addEventListener('mousedown', onDown);
-  window.addEventListener('mouseup', onUp);
-  cvs.addEventListener('click', onClick);
-
-  // cursor feedback like mini brush
-  cvs.addEventListener('mousemove', (ev)=>{
-    const scale = miniScale(); if (!scale) return;
-    const rect = cvs.getBoundingClientRect();
-    const mx = ev.clientX - rect.left;
-    const [s0, s1] = x.domain().map(d=>+d);
-    const left = Math.round(scale(s0));
-    const right = Math.round(scale(s1));
-    const near = 6;
-    if (Math.abs(mx - left) <= near || Math.abs(mx - right) <= near){
-      cvs.style.cursor = 'col-resize';
-    } else if (mx > left && mx < right){
-      cvs.style.cursor = isDrag ? 'grabbing' : 'grab';
-    } else {
-      cvs.style.cursor = 'crosshair';
-    }
-  });
-  cvs.addEventListener('mouseleave', ()=>{ cvs.style.cursor = 'default'; });
-})();
-
-// (prev/next day buttons removed)
-
 // ---- vertical TIR (unchanged) ----
 function updateTIR(idx0,idx1){
   let n=0; let cVL=0,cL=0,cT=0,cH=0,cVH=0;
@@ -1178,7 +839,10 @@ function doUpdateAGP(idx0, idx1){
   // Fix AGP Y axis to match the main chart's Y domain for consistency
   const yA = d3.scaleLinear().domain(y.domain()).range([H-M.b, M.t]);
 
-  // remove filled target band (keep only threshold lines below)
+  // target band
+  svg.append('rect').attr('x',M.l).attr('width',W-M.l-M.r)
+    .attr('y', yA(TH.high)).attr('height', yA(TH.low)-yA(TH.high))
+    .attr('fill','#E8F6EC');
 
   const area = (y0,y1)=>d3.area().defined(d=>Number.isFinite(y0(d))&&Number.isFinite(y1(d)))
     .x(d=>x(d.t)).y0(y0).y1(y1);
