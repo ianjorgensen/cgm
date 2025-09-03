@@ -36,11 +36,17 @@
   }
   .footer { font-size:12px; color:#555; text-align:center; margin:12px 0; }
   .mini-help { font-size:12px; color:#555; text-align:center; margin-top:6px; }
+  .agp-wrap { position:relative; height:280px; }
+  .agp-wrap > svg { position:absolute; inset:0; width:100%; height:100%; }
+  .agp-placeholder { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; color:#555; font-size:16px; font-weight:600; }
   .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; z-index: 20; }
   .modal { background:#fff; border-radius:8px; padding:14px 16px; width:min(640px, 92vw); box-shadow:0 10px 30px rgba(0,0,0,0.2); }
   .modal h3 { margin:0 0 8px; font-size:14px; }
   .modal ul { margin:6px 0; padding-left:16px; }
   .kbd { display:inline-block; padding:2px 6px; border:1px solid #ccc; border-radius:4px; background:#f9f9f9; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11px; }
+  /* Make the mini brush selection more visible */
+  #mini .selection { fill: #f7c6d9; fill-opacity: 0.45; stroke: none; }
+  #mini .handle { stroke: none; fill: #f7c6d9; fill-opacity: 0.30; }
 </style>
 
 <body>
@@ -63,8 +69,9 @@
 
     <!-- Right column (3/4) -->
     <div style="flex:3 1 0; min-width:0;">
-      <div id="agpSection">
-      <svg id="agpSvg" style="width:100%; height:280px;"></svg>
+      <div id="agpSection" class="agp-wrap">
+        <svg id="agpSvg"></svg>
+        <div id="agpMsg" class="agp-placeholder" style="display:none;">Not enough data available to compute AGP profile</div>
       </div>
 
       <div style="position:relative;">
@@ -92,6 +99,8 @@
         <li><span class="kbd">←</span>/<span class="kbd">→</span>: pan by 25% window</li>
         <li><span class="kbd">Shift</span> + <span class="kbd">←</span>/<span class="kbd">→</span>: jump a full window</li>
         <li><span class="kbd">1</span>/<span class="kbd">2</span>/<span class="kbd">3</span>/<span class="kbd">4</span>/<span class="kbd">5</span>/<span class="kbd">6</span>: set window to 1d / 7d / 14d / 1m / 3m / Full</li>
+        <li><span class="kbd">H</span>: set URL hash to current view (shareable)</li>
+        <li><span class="kbd">Esc</span>: close dialog or clear URL hash</li>
       </ul>
       <div style="text-align:right; margin-top:8px;"><button id="closeHelp">Close</button></div>
     </div>
@@ -99,14 +108,15 @@
   <!-- Sticky bottom bar: mini overview time picker -->
   <div class="bottombar">
     <div class="container">
-      <svg id="mini" height="120" style="width:100%;"></svg>
+      <svg id="mini" height="140" style="width:100%;"></svg>
+      <svg id="fullRange" height="100" style="width:100%; margin-top:6px;"></svg>
       <div class="mini-help"><span class="kbd">?</span> to view keyboard shortcuts</div>
     </div>
   </div>
 
 <script type="module">
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
-import { units, t0, stepMs, glucose } from "./cgm_data.js";
+import { units, t0, stepMs, glucose } from "./cgm_data_test.js";
 
 const M={t:20,r:50,b:30,l:50};
 const canvas=document.getElementById("chart");
@@ -122,7 +132,7 @@ const tStart=new Date(t0).getTime();
 const time=Float64Array.from({length:glucose.length},(_,i)=>tStart+i*stepMs);
 const values=Float64Array.from(glucose);
 const tDomain=[time[0],time[time.length-1]];
-const yDomain=d3.extent(values);
+const yDomain=d3.extent(Array.from(values).filter(v=>Number.isFinite(v) && v>=0)) || [0,10];
 
 const x=d3.scaleTime().domain(tDomain).range([M.l,W-M.r]);
 const y=d3.scaleLinear().domain(yDomain).nice().range([H-M.b,M.t]);
@@ -200,12 +210,14 @@ function drawSeries(){
   for(const t of x.ticks(10)){ const xp=Math.round(x(t)); ctx.beginPath(); ctx.moveTo(xp,M.t); ctx.lineTo(xp,H-M.b); ctx.stroke(); }
   for(const g of y.ticks(6)){ const yp=Math.round(y(g)); ctx.beginPath(); ctx.moveTo(M.l,yp); ctx.lineTo(W-M.r,yp); ctx.stroke(); }
 
-  // dots — batch by color for speed
+  // dots — batch by color for speed (skip -1 / missing)
   const buckets = { vlow:[], low:[], targ:[], high:[], vhigh:[] };
   for (let i=idx0;i<=idx1;i++){
+    const v = values[i];
+    if (!(Number.isFinite(v) && v>=0)) continue;
     const px = x(new Date(time[i]));
-    const py = y(values[i]);
-    const b = bandOf(values[i]);
+    const py = y(v);
+    const b = bandOf(v);
     buckets[b].push(px,py);
   }
   const r = 1.5;  // dot radius
@@ -224,9 +236,24 @@ function drawSeries(){
   // axes
   ctx.strokeStyle="#000"; ctx.fillStyle="#000"; ctx.lineWidth=1; ctx.font="10px system-ui";
   ctx.beginPath();ctx.moveTo(M.l,H-M.b+0.5);ctx.lineTo(W-M.r,H-M.b+0.5);ctx.stroke();
-  x.ticks(6).forEach(t=>{ const xp=Math.round(x(t));
+  // dynamic x-axis tick formatting based on span
+  const [xd0, xd1] = x.domain();
+  const spanMs = (+xd1) - (+xd0);
+  const oneDay = 24*60*60*1000;
+  let xticks, fmtTick, xOffset;
+  if (spanMs <= oneDay*2) {
+    const every = spanMs <= oneDay ? 2 : 3; // every 2h if <=1d else every 3h
+    xticks = x.ticks(d3.timeHour.every(every));
+    fmtTick = timeHM; // HH:MM
+    xOffset = -12;
+  } else {
+    xticks = x.ticks(6);
+    fmtTick = fmtAxisDate; // Mon 1st
+    xOffset = -18;
+  }
+  xticks.forEach(t=>{ const xp=Math.round(x(t));
     ctx.beginPath();ctx.moveTo(xp,H-M.b);ctx.lineTo(xp,H-M.b+5);ctx.stroke();
-    ctx.fillText(fmtAxisDate(t), xp-18, H-M.b+16);
+    ctx.fillText(fmtTick(t), xp+xOffset, H-M.b+16);
   });
   ctx.beginPath();ctx.moveTo(M.l-0.5,M.t);ctx.lineTo(M.l-0.5,H-M.b);ctx.stroke();
   y.ticks(6).forEach(v=>{ const yp=Math.round(y(v));
@@ -249,6 +276,8 @@ function handleResize(){
     canvas.width = w; W = w;
     x.range([M.l, W-M.r]);
     drawSeries();
+    // rerender footer sparkline to fit new width
+    renderFullRange();
   }
 }
 window.addEventListener('resize', handleResize);
@@ -260,9 +289,11 @@ canvas.addEventListener("mousemove",e=>{
   if(px<M.l||px>W-M.r||py<M.t||py>H-M.b){tip.style.display="none";return;}
   const tval=x.invert(px).getTime();
   const idx=Math.min(values.length-1,Math.max(0,Math.round((tval-time[0])/stepMs)));
+  const v = values[idx];
+  if (!(Number.isFinite(v) && v>=0)){ tip.style.display="none"; return; }
   tip.style.display="block"; tip.style.left=px+"px"; tip.style.top=py+"px";
   const td = new Date(time[idx]);
-  tip.textContent=`${fmtTooltip(td)} — ${values[idx].toFixed(1)} ${units}`;
+  tip.textContent=`${fmtTooltip(td)} — ${v.toFixed(1)} ${units}`;
 });
 canvas.addEventListener("mouseleave",()=>tip.style.display="none");
 
@@ -292,8 +323,7 @@ canvas.addEventListener('wheel', (e)=>{
     // zoom using wheel: negative deltaY zoom in
     const k = Math.exp(e.deltaY * 0.001);
     const center = (d0 + d1) / 2;
-    const total = (+tDomain[1]) - (+tDomain[0]);
-    const newSpan = Math.min(Math.max(stepMs*20, span * k), total);
+    const newSpan = Math.max(stepMs*20, span * k);
     setDomainViaBrush(center - newSpan/2, center + newSpan/2);
   } else {
     // pan proportional to deltaY (trackpad or wheel)
@@ -315,6 +345,14 @@ window.addEventListener("keydown",e=>{
   if (key === '?' || (k === '/' && e.shiftKey)){
     const ov = document.getElementById('helpOverlay');
     if (ov) ov.style.display = 'flex';
+    e.preventDefault();
+    return;
+  }
+
+  // 'h' sets the URL hash to the current view (shareable link)
+  if (k === 'h' && !e.metaKey && !e.ctrlKey && !e.altKey){
+    const [d0,d1] = x.domain().map(d=>+d);
+    updateHash(d0, d1);
     e.preventDefault();
     return;
   }
@@ -372,8 +410,7 @@ window.addEventListener("keydown",e=>{
   const factor = k === "w" ? 0.5 : 2;
   const [d0,d1] = x.domain().map(d=>+d); // ensure numeric ms
   const center = (d0 + d1) / 2;
-  const total = (+tDomain[1]) - (+tDomain[0]);
-  const newSpan = Math.min(Math.max(stepMs*20, (d1 - d0) * factor), total);
+  const newSpan = Math.max(stepMs*20, (d1 - d0) * factor);
   setDomainViaBrush(center - newSpan/2, center + newSpan/2);
   e.preventDefault();
 });
@@ -409,7 +446,12 @@ document.getElementById('helpOverlay').addEventListener('click', (e)=>{
   if (e.target.id === 'helpOverlay'){ e.currentTarget.style.display='none'; }
 });
 window.addEventListener('keydown', (e)=>{
-  if (e.key === 'Escape'){ const ov=document.getElementById('helpOverlay'); if(ov && ov.style.display==='flex'){ ov.style.display='none'; e.preventDefault(); } }
+  if (e.key === 'Escape'){
+    const ov=document.getElementById('helpOverlay');
+    if (ov && ov.style.display==='flex') { ov.style.display='none'; e.preventDefault(); return; }
+    // Clear the URL hash
+    if (location.hash){ history.replaceState(null, '', location.pathname + location.search); e.preventDefault(); }
+  }
 });
 
 // URL hash helpers for sharing current selection
@@ -421,23 +463,20 @@ function updateHash(d0, d1){
   }
 }
 
-// helper to keep mini brush in sync with x-domain
+// helper to keep mini brush in sync with x-domain (no automatic hash updates)
 function setDomainViaBrush(d0, d1){
-  // clamp to overall data domain
+  // clamp to data bounds and ensure >= 1 step span
   const min = +tDomain[0], max = +tDomain[1];
   if (d0 < min) { d1 += (min - d0); d0 = min; }
   if (d1 > max) { d0 -= (d1 - max); d1 = max; }
-  // ensure non-inverted and within bounds
   d0 = Math.max(min, Math.min(max, d0));
   d1 = Math.max(min, Math.min(max, d1));
   if (d1 <= d0) d1 = Math.min(max, d0 + stepMs);
   if (typeof miniX !== 'undefined' && typeof brush !== 'undefined' && typeof brushG !== 'undefined') {
     brushG.call(brush.move, [miniX(d0), miniX(d1)]);
-    // brush handler will call draw + updateHash
   } else {
     x.domain([d0, d1]);
     drawSeries();
-    updateHash(d0, d1);
   }
 }
 
@@ -448,10 +487,10 @@ const miniX=d3.scaleTime().domain(tDomain).range([M.l,miniW-M.r]);
 const miniY=d3.scaleLinear().domain(y.domain()).range([miniH-20,10]);
 const stride=Math.max(1,Math.floor(values.length/(miniW-M.l-M.r)));
 const miniData=[]; for(let i=0;i<values.length;i+=stride) miniData.push({t:new Date(time[i]),g:values[i]});
-miniSvg.append("path").attr("d",d3.line().x(d=>miniX(d.t)).y(d=>miniY(d.g))(miniData))
+miniSvg.append("path").attr("d",d3.line().defined(d=>Number.isFinite(d.g) && d.g>=0).x(d=>miniX(d.t)).y(d=>miniY(d.g))(miniData))
   .attr("fill","none").attr("stroke","#222");
-const brush=d3.brushX().extent([[M.l,10],[miniW-M.r,miniH-20]]).on("brush end",({selection})=>{
-  if(!selection)return; const[a,b]=selection.map(miniX.invert); x.domain([+a,+b]); drawSeries(); updateHash(+a,+b);
+const brush=d3.brushX().handleSize(3).extent([[M.l,10],[miniW-M.r,miniH-20]]).on("brush end",({selection})=>{
+  if(!selection)return; const[a,b]=selection.map(miniX.invert); x.domain([+a,+b]); drawSeries();
 });
 const brushG = miniSvg.append("g").call(brush);
 
@@ -476,36 +515,85 @@ function applyHashSelection(){
 applyHashSelection();
 window.addEventListener('hashchange', applyHashSelection);
 
-// mini x-axis with months at the start of each month, label as short month only
-const monthFmt = d3.timeFormat("%b");
-const monthTicks = d3.timeMonths(new Date(tDomain[0]), new Date(tDomain[1]));
-const miniAxis = d3.axisBottom(miniX)
-  .tickValues(monthTicks)
-  .tickFormat(monthFmt)
-  .tickPadding(6)
-  .tickSizeOuter(0)
-  .tickSizeInner(3);
-const miniAxisG = miniSvg.append("g").attr("transform", `translate(0,${miniH-8})`).call(miniAxis);
-miniAxisG.selectAll("text")
-  .attr("font-size", 10)
-  .attr("fill", "#444")
-  .attr("text-anchor","middle")
-  .attr("transform", null)
-  .attr("dx", null)
-  .attr("dy", "0.6em");
+// mini x-axis with adaptive month ticks; show year on January
+function renderMiniAxis(){
+  miniSvg.selectAll('.mini-axis').remove();
+  const start = new Date(tDomain[0]);
+  const end = new Date(tDomain[1]);
+  const months = d3.timeMonths(d3.timeMonth.floor(start), end);
+  const fmtM = d3.timeFormat('%b');
+  const fmtY = d3.timeFormat("'%y");
+  // Determine how many labels fit (~40px per label)
+  const bbox = miniSvg.node().getBoundingClientRect();
+  const avail = Math.max(60, (bbox.width || (W - M.l - M.r)) - (M.l + M.r));
+  const maxTicks = Math.max(2, Math.floor(avail / 40));
+  const step = Math.max(1, Math.ceil(months.length / maxTicks));
+  const tickMonths = months.filter((_,i)=> i % step === 0);
+  const axis = d3.axisBottom(miniX)
+    .tickValues(tickMonths)
+    .tickFormat(d=> d.getMonth()===0 ? `${fmtM(d)} ${fmtY(d)}` : fmtM(d))
+    .tickPadding(6)
+    .tickSizeOuter(0)
+    .tickSizeInner(3);
+  const g = miniSvg.append('g').attr('class','mini-axis').attr('transform', `translate(0,${miniH-8})`).call(axis);
+  g.selectAll('text').attr('font-size',10).attr('fill','#444').attr('text-anchor','middle').attr('dy','0.6em');
+}
+renderMiniAxis();
 
 // (no month axis in the AGP-initial version)
 
+// Full-range sparkline (below mini, full dataset)
+function renderFullRange(){
+  const svg = d3.select('#fullRange');
+  if (svg.empty()) return;
+  svg.selectAll('*').remove();
+  const bbox = svg.node().getBoundingClientRect();
+  const Wf = Math.max(360, bbox.width || 600);
+  const Hf = Math.max(80, bbox.height || 100);
+  const m = {l:M.l, r:M.r, t:6, b:14};
+  const xF = d3.scaleTime().domain(tDomain).range([m.l, Wf-m.r]);
+  const yF = d3.scaleLinear().domain([0,100]).range([Hf-m.b, m.t]);
+
+  // Build per-day percentage of time in target over the FULL dataset
+  const dayMs = 24*60*60*1000;
+  const byDay = new Map(); // dayStart -> {valid,targ}
+  for (let i=0;i<values.length;i++){
+    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
+    const d = new Date(time[i]);
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    let rec = byDay.get(dayStart); if (!rec){ rec = {valid:0,targ:0}; byDay.set(dayStart, rec); }
+    rec.valid++; if (v >= TH.low && v <= TH.high) rec.targ++;
+  }
+  const samplesPerDay = Math.round(dayMs/stepMs);
+  const days = Array.from(byDay.entries()).sort((a,b)=>a[0]-b[0]).map(([t,rec])=>{
+    const active = rec.valid / samplesPerDay * 100;
+    const pct = rec.valid ? (rec.targ/rec.valid*100) : NaN;
+    // Hide days with too little data (<30% active)
+    return { t: new Date(t + dayMs/2), pct: active >= 30 ? pct : NaN };
+  });
+  const line = d3.line().defined(d=>Number.isFinite(d.pct)).x(d=>xF(d.t)).y(d=>yF(d.pct));
+  svg.append('path').attr('d', line(days)).attr('fill','none').attr('stroke', COLORS.targ).attr('stroke-width',1.2);
+  // optional baseline
+  svg.append('line').attr('x1',m.l).attr('x2',Wf-m.r).attr('y1',Hf-m.b+0.5).attr('y2',Hf-m.b+0.5)
+    .attr('stroke','#ddd');
+  // y-axis: 0%, 50%, 100%
+  const yAxis = d3.axisLeft(yF).tickValues([0,50,100]).tickFormat(d=>d+"%");
+  svg.append('g').attr('transform',`translate(${m.l},0)`).call(yAxis)
+    .selectAll('text').attr('font-size',10);
+}
+renderFullRange();
+
 // ---- vertical TIR (unchanged) ----
 function updateTIR(idx0,idx1){
-  const n=Math.max(1,idx1-idx0+1);
-  let cVL=0,cL=0,cT=0,cH=0,cVH=0;
+  let n=0; let cVL=0,cL=0,cT=0,cH=0,cVH=0;
   for(let i=idx0;i<=idx1;i++){
     const v=values[i];
+    if (!(Number.isFinite(v) && v>=0)) continue;
+    n++;
     if(v<TH.vlow)cVL++; else if(v<TH.low)cL++;
     else if(v<=TH.high)cT++; else if(v<=TH.vhigh)cH++; else cVH++;
   }
-  const pct=x=>Math.round(1000*x/n)/10;
+  const pct=x=> n? Math.round(1000*x/n)/10 : 0;
 
   const bands=[
     {name:"Very High", pct:pct(cVH), color:COLORS.vhigh, goal:"<5%"},
@@ -596,7 +684,7 @@ function doUpdateAGP(idx0, idx1){
   for (let i=idx0;i<=idx1;i++){
     const t = time[i];
     const v = values[i];
-    if (!Number.isFinite(v)) continue;
+    if (!(Number.isFinite(v) && v>=0)) continue;
     const d = new Date(t);
     const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     daysSet.add(midnight);
@@ -669,8 +757,8 @@ function updateSummary(idx0, idx1){
   const periodText = `${fmtDate(start)} – ${fmtDate(end)}`;
   document.getElementById('sumPeriod').textContent = periodText;
 
-  // slice values and filter finite
-  const slice = Array.from(values.slice(idx0, idx1+1)).filter(Number.isFinite);
+  // slice values and filter valid (not -1)
+  const slice = Array.from(values.slice(idx0, idx1+1)).filter(v=>Number.isFinite(v) && v>=0);
   const expected = Math.max(1, idx1 - idx0 + 1);
   const present = slice.length;
   const activePct = 100 * present / expected;
@@ -689,6 +777,7 @@ function updateSummary(idx0, idx1){
   document.getElementById('sumCv').textContent  = Number.isFinite(cv)  ? `${cv.toFixed(1)}%`  : '—';
 }
 
+
 // ---- Show/hide AGP based on selected window length ----
 function updateAGPVisibility(idx0, idx1){
   // Count unique days in the current selection
@@ -702,12 +791,11 @@ function updateAGPVisibility(idx0, idx1){
   const nDays = daysSet.size || 0;
   const show = nDays >= 7; // require at least 7 days to render AGP
 
-  // Hide content but preserve layout height so the chart position doesn't shift
-  const sec = document.getElementById('agpSection');
-  if (sec){
-    sec.style.visibility = show ? '' : 'hidden';
-    sec.style.pointerEvents = show ? '' : 'none';
-  }
+  // Toggle AGP SVG vs. message within fixed-height wrapper
+  const svgEl = document.getElementById('agpSvg');
+  const msgEl = document.getElementById('agpMsg');
+  if (svgEl) svgEl.style.visibility = show ? 'visible' : 'hidden';
+  if (msgEl) msgEl.style.display = show ? 'none' : 'flex';
 
   // Always show the days count in the footer, even when hidden
   const meta = document.getElementById('agpMeta');
