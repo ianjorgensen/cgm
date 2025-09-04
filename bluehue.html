@@ -918,13 +918,13 @@ function renderDailyTir(){
   const H2 = cssH;
 
   const samplesPerDay = Math.max(1, Math.round(dayMs/stepMs));
-  // Pastel palette for Daily TIR (softer than main COLORS)
+  // Blue palette for Daily TIR
   const DCLR = {
-    vlow: '#e57373',  // deeper soft red
-    low:  '#ff9e80',  // deeper peach
-    targ: '#86c89d',  // darker soft green
-    high: '#ffcc80',  // deeper light orange
-    vhigh:'#ff8a65'   // deeper coral
+    vlow: '#dbe9ff',
+    low:  '#cfe2ff',
+    targ: '#a9c9ff',
+    high: '#86b3ff',
+    vhigh:'#6fa8ff'
   };
   // Draw columns aligned to mini's x-scale and plot area margins
   for (let i=0;i<nDays;i++){
@@ -1113,9 +1113,9 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
       g.append('text').attr('x', cw/2).attr('y', 10).attr('text-anchor','middle').attr('fill','#333').attr('font-size',10).text(fmtWk(dDate));
     }
     g.append('text').attr('x', 2).attr('y', 10).attr('fill','#777').attr('font-size',10).text(fmtDay(dDate));
-    // thresholds
-    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(TH.low)+innerT).attr('y2', yC(TH.low)+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
-    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(TH.high)+innerT).attr('y2', yC(TH.high)+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
+    // thresholds (blue hue)
+    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(TH.low)+innerT).attr('y2', yC(TH.low)+innerT).attr('stroke','#7aa5e6').attr('stroke-width',1);
+    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(TH.high)+innerT).attr('y2', yC(TH.high)+innerT).attr('stroke','#7aa5e6').attr('stroke-width',1);
     // data for day
     const arr = (dayMap.get(ds) || []).sort((a,b)=>a.t-b.t);
     if (arr.length){
@@ -1154,13 +1154,11 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
         .curve(d3.curveMonotoneX);
       segs.forEach(seg=>{
         if (seg.length<2) return;
-        // fill above target (orange) and below target (red) — more opaque than the lines
-        g.append('path').attr('d', areaAboveHigh(seg)).attr('fill','#fdae61').attr('opacity',0.35);
-        g.append('path').attr('d', areaBelowLow(seg)).attr('fill','#d73027').attr('opacity',0.35);
-        // lines: within target full opacity; above/below slightly subdued for contrast
-        g.append('path').attr('d', lineIn(seg)).attr('fill','none').attr('stroke','#1a9850').attr('stroke-width',1.5);
-        g.append('path').attr('d', lineAbove(seg)).attr('fill','none').attr('stroke','#fdae61').attr('stroke-width',1.5).attr('opacity',0.6);
-        g.append('path').attr('d', lineBelow(seg)).attr('fill','none').attr('stroke','#d73027').attr('stroke-width',1.5).attr('opacity',0.6);
+        // blue fills and lines
+        g.append('path').attr('d', areaAboveHigh(seg)).attr('fill','#cfe2ff').attr('opacity',0.6);
+        g.append('path').attr('d', areaBelowLow(seg)).attr('fill','#dbe9ff').attr('opacity',0.6);
+        g.append('path').attr('d', d3.line().x(d=>xC(d.t)).y(d=>yC(d.v)+innerT).curve(d3.curveMonotoneX)(seg))
+          .attr('fill','none').attr('stroke','#1f64c8').attr('stroke-width',1.5);
       });
     }
     // 12pm label between rows (for every gap between rows)

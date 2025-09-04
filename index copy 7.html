@@ -189,21 +189,12 @@ function getCanvasWidth(){
   const cw = canvas.getBoundingClientRect().width;
   return Math.max(300, Math.floor(aw || cw || 1200));
 }
-const dpr = Math.max(1, window.devicePixelRatio || 1);
+canvas.width = getCanvasWidth();
 // match canvas height to AGP section height for visual alignment
 const agpWrapEl = document.getElementById('agpSection');
 const agpCssH = parseInt((agpWrapEl && getComputedStyle(agpWrapEl).height) || '280', 10) || 280;
-let W = getCanvasWidth(), H = agpCssH;
-function sizeCanvas(){
-  W = getCanvasWidth();
-  H = parseInt((agpWrapEl && getComputedStyle(agpWrapEl).height) || H, 10) || H;
-  canvas.style.width = W + 'px';
-  canvas.style.height = H + 'px';
-  canvas.width = Math.floor(W * dpr);
-  canvas.height = Math.floor(H * dpr);
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-}
-sizeCanvas();
+let W = canvas.width, H = agpCssH;
+canvas.height = H;
 const tip=document.getElementById("tip");
 
 const tStart=new Date(t0).getTime();
