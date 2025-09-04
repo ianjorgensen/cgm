@@ -20,7 +20,7 @@
   .goal { font-size:10px; fill:#666; }
   .bands-legend { display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; margin-top:6px; color:#444; }
   .sw { width:14px; height:10px; border-radius:2px; display:inline-block; margin-right:4px; }
-  .sw-line { width:18px; height:3px; border-radius:2px; display:inline-block; margin-right:4px; background:#1a9850; }
+  .sw-line { width:18px; height:3px; border-radius:2px; display:inline-block; margin-right:4px; background:#1f64c8; }
   /* Hide the main bands legend */
   #bandsLegend { display:none !important; }
   .muted { color:#777; font-size:12px; }
@@ -214,7 +214,8 @@ const TH = isMmol
 const toMg = v => isMmol ? v*18 : v;
 
 // colors + helpers
-const COLORS = { vlow:"#b30000", low:"#e34a33", targ:"#1a9850", high:"#fdae61", vhigh:"#f46d43" };
+// Blue theme colors (shades of blue)
+const COLORS = { vlow:"#cfe2ff", low:"#a9c9ff", targ:"#6fa8ff", high:"#3f83f8", vhigh:"#1f64c8" };
 
 // Unified ranges object with thresholds and colors (values in current units)
 const RANGES = {
@@ -321,8 +322,8 @@ function drawSeries(){
   for(const t of x.ticks(10)){ const xp=Math.round(x(t)); ctx.beginPath(); ctx.moveTo(xp,M.t); ctx.lineTo(xp,H-M.b); ctx.stroke(); }
   for(const g of y.ticks(6)){ const yp=Math.round(y(g)); ctx.beginPath(); ctx.moveTo(M.l,yp); ctx.lineTo(W-M.r,yp); ctx.stroke(); }
 
-  // line series colored by band with precise boundary splits
-  const colorFor = v => (v < TH.low ? '#d73027' : (v > TH.vhigh ? '#f46d43' : (v > TH.high ? '#fdae61' : '#1a9850')));
+  // Blue theme: single line color
+  const colorFor = v => '#1f64c8';
   const gapMs = Math.max(3*stepMs, 45*60*1000);
   ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   let hasPath=false; let tPrev=null, vPrev=null; let colPrev=null;
@@ -529,22 +530,6 @@ window.addEventListener("keydown",e=>{
       else if (mc.classList.contains('layout-old')){ mc.classList.remove('layout-old'); mc.classList.add('layout-new'); }
       else { mc.classList.add('layout-old'); }
     }
-    e.preventDefault();
-    return;
-  }
-
-  // 'x' toggles AGP visibility
-  if (k === 'x' && !e.metaKey && !e.ctrlKey && !e.altKey){
-    const agp = document.getElementById('agpSection');
-    if (agp){ agp.style.display = (agp.style.display === 'none') ? '' : 'none'; }
-    e.preventDefault();
-    return;
-  }
-
-  // 'z' toggles daily strips visibility
-  if (k === 'z' && !e.metaKey && !e.ctrlKey && !e.altKey){
-    const strips = document.getElementById('stripsWrap');
-    if (strips){ strips.style.display = (strips.style.display === 'none') ? '' : 'none'; }
     e.preventDefault();
     return;
   }
@@ -996,11 +981,11 @@ function renderDailyTir(){
     const left = Math.max(0, Math.min(cssW, Math.round(miniScale(sel0))));
     const right = Math.max(0, Math.min(cssW, Math.round(miniScale(sel1))));
     ctx2.save();
-    // fill selected area in grayish-blue
-    ctx2.fillStyle = 'rgba(107, 127, 161, 0.30)';
+    // fill selected area in blue (much darker opacity)
+    ctx2.fillStyle = 'rgba(30, 136, 229, 0.45)';
     if (right > left) ctx2.fillRect(left, 0, right - left, Hplot);
     // selection edge lines in stronger blue
-    ctx2.strokeStyle = '#6b7fa1';
+    ctx2.strokeStyle = '#1e88e5';
     ctx2.lineWidth = 1.5;
     ctx2.beginPath();
     ctx2.moveTo(left + 0.5, 0.5); ctx2.lineTo(left + 0.5, Hplot - 0.5);
@@ -1376,16 +1361,12 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
 // ---- vertical TIR (unchanged) ----
 function updateTIR(idx0,idx1){
   let n=0; let cVL=0,cL=0,cT=0,cH=0,cVH=0;
-  // tight in-range (TTIR): 3.9–7.8 mmol/L or 70–140 mg/dL
-  const tightHigh = isMmol ? 7.8 : 140;
-  let cTight = 0;
   for(let i=idx0;i<=idx1;i++){
     const v=values[i];
     if (!(Number.isFinite(v) && v>=0)) continue;
     n++;
     if(v<TH.vlow)cVL++; else if(v<TH.low)cL++;
     else if(v<=TH.high)cT++; else if(v<=TH.vhigh)cH++; else cVH++;
-    if (v>=TH.low && v<=tightHigh) cTight++;
   }
   const pct=x=> n? Math.round(1000*x/n)/10 : 0;
 
@@ -1453,24 +1434,6 @@ function updateTIR(idx0,idx1){
       .attr("class","pct").attr("fill", l.color).attr("font-size", 11)
       .text(l.text);
   });
-
-  // hover TTIR tooltip
-  try {
-    const tipEl = document.getElementById('tipFull');
-    const tightPct = pct(cTight);
-    const rangeLabel = isMmol ? '3.9–7.8 mmol/L' : '70–140 mg/dL';
-    const show = (event)=>{
-      if (!tipEl) return;
-      const rect = svg.node().getBoundingClientRect();
-      const [mx,my] = d3.pointer(event, svg.node());
-      tipEl.style.display='block';
-      tipEl.style.left = (rect.left + mx + 10) + 'px';
-      tipEl.style.top  = (rect.top + my - 10) + 'px';
-      tipEl.textContent = `TTIR: ${tightPct}% (${rangeLabel})`;
-    };
-    const hide = ()=>{ if (tipEl) tipEl.style.display='none'; };
-    svg.on('mousemove', show).on('mouseleave', hide);
-  } catch {}
 
   // removed TIR header text for cleaner layout
 }
@@ -1569,11 +1532,11 @@ function doUpdateAGP(idx0, idx1){
       .x(d=>x(d.t))
       .y0(d=>yA(d.p95))
       .y1(d=>yA(TH.vhigh));
-    svg.append('path').attr('d', aBelow(series)).attr('fill','#d73027').attr('opacity',0.18);
-    svg.append('path').attr('d', aIn(series)).attr('fill','#1a9850').attr('opacity',0.12);
-    svg.append('path').attr('d', aAboveMid(series)).attr('fill','#fdae61').attr('opacity',0.18);
-    svg.append('path').attr('d', aAboveVhStraddle(series)).attr('fill','#f46d43').attr('opacity',0.26);
-    svg.append('path').attr('d', aAboveVh(series)).attr('fill','#f46d43').attr('opacity',0.26);
+    svg.append('path').attr('d', aBelow(series)).attr('fill','#dbe9ff').attr('opacity',0.45);
+    svg.append('path').attr('d', aIn(series)).attr('fill','#c6ddff').attr('opacity',0.35);
+    svg.append('path').attr('d', aAboveMid(series)).attr('fill','#b3d1ff').attr('opacity',0.35);
+    svg.append('path').attr('d', aAboveVhStraddle(series)).attr('fill','#99c2ff').attr('opacity',0.45);
+    svg.append('path').attr('d', aAboveVh(series)).attr('fill','#99c2ff').attr('opacity',0.45);
   })();
   // IQR (25%–75%) split: green within target, orange above target, red below target; very-high as scarlet
   (function drawIqrSplit(){
@@ -1602,49 +1565,17 @@ function doUpdateAGP(idx0, idx1){
       .x(d=>x(d.t))
       .y0(d=>yA(d.p25))
       .y1(d=>yA(Math.min(d.p75, TH.low)));
-    // draw in order: below (red), in (green), above (orange)
-    svg.append('path').attr('d', aBelow(series)).attr('fill','#d73027').attr('opacity',0.35);
-    svg.append('path').attr('d', aIn(series)).attr('fill','#1a9850').attr('opacity',0.25);
-    svg.append('path').attr('d', aAboveMid(series)).attr('fill','#fdae61').attr('opacity',0.35);
-    svg.append('path').attr('d', aAboveVhStraddle(series)).attr('fill','#f46d43').attr('opacity',0.45);
-    svg.append('path').attr('d', aAboveVh(series)).attr('fill','#f46d43').attr('opacity',0.45);
+    // draw in order with blue shades
+    svg.append('path').attr('d', aBelow(series)).attr('fill','#cfe2ff').attr('opacity',0.6);
+    svg.append('path').attr('d', aIn(series)).attr('fill','#a9c9ff').attr('opacity',0.6);
+    svg.append('path').attr('d', aAboveMid(series)).attr('fill','#86b3ff').attr('opacity',0.6);
+    svg.append('path').attr('d', aAboveVhStraddle(series)).attr('fill','#6fa8ff').attr('opacity',0.7);
+    svg.append('path').attr('d', aAboveVh(series)).attr('fill','#6fa8ff').attr('opacity',0.7);
   })();
-  // Median (50%) line colored by band with precise splits at boundaries
+  // Median (50%) line colored in blue
   try {
-    const colorFor = v => (v < TH.low ? '#d73027' : (v > TH.vhigh ? '#f46d43' : (v > TH.high ? '#fdae61' : '#1a9850')));
-    const line50 = d3.line().x(d=>x(d.t)).y(d=>yA(d.p50));
-    const addSeg = (segs, col, a, b) => {
-      if (!Number.isFinite(a.p50) || !Number.isFinite(b.p50)) return;
-      if (!segs.length || segs[segs.length-1].color !== col) segs.push({color:col, arr:[a]});
-      segs[segs.length-1].arr.push(b);
-    };
-    function between(v0,v1,B){ return (v0<B && v1>=B) || (v0>B && v1<=B); }
-    function inter(t0,v0,t1,v1,B){ const t = t0 + (B - v0) * (t1 - t0) / (v1 - v0); return {t, p50:B}; }
-    let segs=[]; let prev=null;
-    for (let i=0;i<series.length;i++){
-      const cur = series[i];
-      if (!Number.isFinite(cur.p50)) { prev=null; continue; }
-      if (!prev){ prev=cur; continue; }
-      const t0=prev.t, v0=prev.p50, t1=cur.t, v1=cur.p50;
-      // generate boundary points in order of crossing
-      let pts=[{t:t0,p50:v0}], vprev=v0, tprev=t0;
-      const ths = [TH.low, TH.high, TH.vhigh];
-      const ascend = v1>v0; const ordered = ascend? ths : ths.slice().reverse();
-      ordered.forEach(B=>{ if (between(vprev, v1, B)){ const p=inter(tprev, vprev, t1, v1, B); pts.push(p); vprev=p.p50; tprev=p.t; } });
-      pts.push({t:t1,p50:v1});
-      for (let k=1;k<pts.length;k++){
-        const a=pts[k-1], b=pts[k];
-        const mid = (a.p50 + b.p50)/2 + (b.p50===a.p50? (b.t>a.t?1e-6:-1e-6):0);
-        const col = colorFor(mid);
-        addSeg(segs, col, a, b);
-      }
-      prev=cur;
-    }
-    segs.forEach(seg=>{
-      if (seg.arr.length<2) return;
-      svg.append('path').attr('d', line50(seg.arr))
-        .attr('stroke', seg.color).attr('fill','none').attr('stroke-width',2);
-    });
+    const line50 = d3.line().defined(d=>Number.isFinite(d.p50)).x(d=>x(d.t)).y(d=>yA(d.p50));
+    svg.append('path').attr('d', line50(series)).attr('stroke','#1f64c8').attr('fill','none').attr('stroke-width',2);
   } catch {}
   // Percentile labels at right edge: 5%,25%,50%,75%,95%
   try {

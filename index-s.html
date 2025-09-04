@@ -46,14 +46,7 @@
   .help-kbd .kbd { color:#777; border-color:#d0d0d0; background:#f3f3f3; }
   .help-kbd:hover { background:#eee; }
   /* reverted: compact summary/bottom bar removed */
-  .container { max-width:1200px; width:100%; margin:0 auto; overflow-x:hidden; }
-  /* Layout toggling */
-  .layout-new #leftGroup { display:flex; gap:16px; align-items:flex-start; margin-top:12px; }
-  .layout-new #rightGroup { margin-top:16px; }
-  .layout-old { display:grid; grid-template-columns: 1fr 3fr; gap:16px; align-items:start; }
-  .layout-old #leftGroup { display:flex; flex-direction:column; gap:16px; }
-  .layout-old #rightGroup { }
-  .layout-old > #leftGroup, .layout-old > #rightGroup { min-width:0; }
+  .container { max-width:1200px; margin:0 auto; }
   @media (max-width: 768px){
     .content-row { display:flex !important; flex-direction: column; gap:16px; }
     .content-row > div { flex: none !important; min-width: 0; width: 100%; }
@@ -80,40 +73,39 @@
 <body>
   <!-- sticky mini picker at bottom (moved from top) -->
 
-  <div class="container layout-old" id="mainContainer">
-    <!-- Group: Summary + TIR -->
-    <div id="leftGroup">
-      <div id="tirCard" style="flex:1 1 0; min-width:0;">
-        <div id="tir" style="border:1px solid #e6e6e6; border-radius:8px; background:#fff;"></div>
+  <div class="container">
+    <!-- Two-column layout: Left (1/4) TIR+Summary, Right (3/4) AGP+Chart -->
+    <div class="content-row" style="display:flex; gap:16px; align-items:flex-start; margin-top:12px;">
+    <!-- Left column (1/4) -->
+    <div style="flex:1 1 0; min-width:0;">
+      <div id="summary" style="border:1px solid #e6e6e6; border-radius:8px; padding:10px; background:#fff;">
+        <div class="metric"><div><b>Report Period</b></div><div id="sumPeriod"></div></div>
+        <div class="metric"><div><b>Time CGM Active</b></div><div id="sumActive"></div></div>
+        <div class="metric"><div><b>Average Glucose</b><div class="muted">Goal: &lt;8.6 mmol/L</div></div><div id="sumAvg"></div></div>
+        <div class="metric"><div><b>Glucose Management Indicator (GMI)</b><div class="muted">Goal: &lt;7%</div></div><div id="sumGmi"></div></div>
+        <div class="metric"><div><b>Glucose Variability (CV)</b><div class="muted">Goal: ≤36%</div></div><div id="sumCv"></div></div>
       </div>
-      <div id="summaryCard" style="flex:1 1 0; min-width:0;">
-        <div id="summary" style="border:1px solid #e6e6e6; border-radius:8px; padding:10px; background:#fff;">
-          <div class="metric"><div><b>Report Period</b></div><div id="sumPeriod"></div></div>
-          <div class="metric"><div><b>Time CGM Active</b></div><div id="sumActive"></div></div>
-          <div class="metric"><div><b>Average Glucose</b><div class="muted">Goal: &lt;8.6 mmol/L</div></div><div id="sumAvg"></div></div>
-          <div class="metric"><div><b>Glucose Management Indicator (GMI)</b><div class="muted">Goal: &lt;7%</div></div><div id="sumGmi"></div></div>
-          <div class="metric"><div><b>Glucose Variability (CV)</b><div class="muted">Goal: ≤36%</div></div><div id="sumCv"></div></div>
-        </div>
-      </div>
+      <div id="tir" style="margin-top:16px;"></div>
     </div>
 
-    <!-- Group: AGP + Charts -->
-    <div id="rightGroup">
+    <!-- Right column (3/4) -->
+    <div style="flex:3 1 0; min-width:0;">
       <div id="agpSection" class="agp-wrap">
-          <svg id="agpSvg"></svg>
-          <div id="agpMsg" class="agp-placeholder" style="display:none;">Not enough data available to compute AGP profile</div>
+        <svg id="agpSvg"></svg>
+        <div id="agpMsg" class="agp-placeholder" style="display:none;">Not enough data available to compute AGP profile</div>
       </div>
-    
+
       <div id="chartWrap" style="position:relative;">
-          <canvas id="chart" width="1200" height="260"></canvas>
-          <div id="tip" class="tooltip" style="display:none;"></div>
-          <div id="chartMsg" class="agp-placeholder" style="display:none; height:260px;">Too much data to display on daily view</div>
+        <canvas id="chart" width="1200" height="260"></canvas>
+        <div id="tip" class="tooltip" style="display:none;"></div>
+        <div id="chartMsg" class="agp-placeholder" style="display:none; height:260px;">Too much data to display on daily view</div>
       </div>
-      <!-- Small-multiples daily strips -->
+      <!-- Small-multiples daily strips (last 14 days of selection) -->
       <div id="stripsWrap" style="margin-top:12px;">
-          <svg id="stripsSvg"></svg>
+        <svg id="stripsSvg"></svg>
       </div>
       <div id="bandsLegend" class="bands-legend" style="margin-top:8px;"></div>
+    </div>
     </div>
 
     <!-- Footer row removed -->
@@ -132,9 +124,6 @@
         <li><span class="kbd">1</span>/<span class="kbd">2</span>/<span class="kbd">3</span>/<span class="kbd">4</span>/<span class="kbd">5</span>/<span class="kbd">6</span>: set window to 1d / 7d / 14d / 1m / 3m / Full (up to 1 year)</li>
         <li><span class="kbd">L</span>: set URL hash to current view (shareable)</li>
         <li><span class="kbd">C</span>: hide/show the main chart</li>
-        <li><span class="kbd">X</span>: hide/show AGP</li>
-        <li><span class="kbd">Z</span>: hide/show daily strips</li>
-        <li><span class="kbd">E</span>: toggle layout (stacked vs. two-column)</li>
         <li><span class="kbd">F</span>: hide/show the footer</li>
         <li><span class="kbd">Esc</span>: close dialog or clear URL hash</li>
       </ul>
@@ -321,47 +310,33 @@ function drawSeries(){
   for(const t of x.ticks(10)){ const xp=Math.round(x(t)); ctx.beginPath(); ctx.moveTo(xp,M.t); ctx.lineTo(xp,H-M.b); ctx.stroke(); }
   for(const g of y.ticks(6)){ const yp=Math.round(y(g)); ctx.beginPath(); ctx.moveTo(M.l,yp); ctx.lineTo(W-M.r,yp); ctx.stroke(); }
 
-  // line series colored by band with precise boundary splits
+  // line series colored by band (below=red, in-range=green, high=orange, very-high=scarlet)
   const colorFor = v => (v < TH.low ? '#d73027' : (v > TH.vhigh ? '#f46d43' : (v > TH.high ? '#fdae61' : '#1a9850')));
   const gapMs = Math.max(3*stepMs, 45*60*1000);
+  let lastT = null, lastBand = null; let hasPoint = false;
+  function strokeSeg(end){
+    ctx.stroke();
+    hasPoint = false;
+  }
   ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  let hasPath=false; let tPrev=null, vPrev=null; let colPrev=null;
-  function endPath(){ if(hasPath){ ctx.stroke(); hasPath=false; } }
-  function beginAt(px,py,color){ ctx.beginPath(); ctx.strokeStyle=color; ctx.moveTo(px,py); hasPath=true; }
-  function between(v0,v1,thr){ return (v0<thr && v1>=thr) || (v0>thr && v1<=thr); }
-  function intersections(t0,v0,t1,v1){
-    const ths = [TH.low, TH.high, TH.vhigh];
-    const res=[]; if (v0===v1) return res;
-    const up = v1>v0;
-    const ordered = up ? ths : ths.slice().reverse();
-    for (const B of ordered){ if ((v0<B && v1>=B) || (v0>B && v1<=B)){
-        const tc = t0 + (B - v0) * (t1 - t0) / (v1 - v0);
-        res.push({t:tc, v:B});
-      } }
-    return res;
-  }
   for (let i=idx0;i<=idx1;i++){
-    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) { endPath(); tPrev=null; vPrev=null; continue; }
+    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) { lastT=null; continue; }
     const t = time[i];
-    if (tPrev===null || (t - tPrev) > gapMs){
-      endPath();
-      const px=x(new Date(t)), py=y(v); beginAt(px,py,colorFor(v));
-      tPrev=t; vPrev=v; colPrev=colorFor(v); continue;
+    const band = (v < TH.low ? 'low' : (v > TH.vhigh ? 'vhigh' : (v > TH.high ? 'high' : 'targ')));
+    const px = x(new Date(t));
+    const py = y(v);
+    if (!hasPoint || lastT===null || (t-lastT)>gapMs || band!==lastBand){
+      if (hasPoint) strokeSeg();
+      ctx.beginPath();
+      ctx.strokeStyle = band==='low' ? '#d73027' : (band==='vhigh' ? '#f46d43' : (band==='high' ? '#fdae61' : '#1a9850'));
+      ctx.moveTo(px, py);
+      hasPoint = true;
+    } else {
+      ctx.lineTo(px, py);
     }
-    // compute crossing points and draw segments with proper colors
-    const pts = [{t:tPrev, v:vPrev}].concat(intersections(tPrev,vPrev,t,v)).concat([{t:t, v:v}]);
-    for (let k=1;k<pts.length;k++){
-      const p0=pts[k-1], p1=pts[k];
-      const c1=colorFor(p1.v - (p1.v===TH.low||p1.v===TH.high||p1.v===TH.vhigh ? (p1.t>p0.t?1e-6:-1e-6):0));
-      const px1=x(new Date(p1.t)), py1=y(p1.v);
-      // ensure stroke color for this subsegment
-      if (!hasPath){ beginAt(x(new Date(p0.t)), y(p0.v), c1); }
-      if (ctx.strokeStyle !== c1){ ctx.lineTo(x(new Date(p0.t)), y(p0.v)); endPath(); beginAt(x(new Date(p0.t)), y(p0.v), c1); }
-      ctx.lineTo(px1, py1);
-    }
-    tPrev=t; vPrev=v; colPrev=colorFor(v);
+    lastT = t; lastBand = band;
   }
-  endPath();
+  if (hasPoint) strokeSeg();
 
   // axes
   ctx.strokeStyle="#000"; ctx.fillStyle="#000"; ctx.lineWidth=1; ctx.font="10px system-ui";
@@ -517,34 +492,6 @@ window.addEventListener("keydown",e=>{
   // 'f' toggles footer visibility
   if (k === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey){
     if (typeof globalThis.toggleFooter === 'function') globalThis.toggleFooter();
-    e.preventDefault();
-    return;
-  }
-
-  // 'e' toggles layout
-  if (k === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey){
-    const mc = document.getElementById('mainContainer');
-    if (mc){
-      if (mc.classList.contains('layout-new')){ mc.classList.remove('layout-new'); mc.classList.add('layout-old'); }
-      else if (mc.classList.contains('layout-old')){ mc.classList.remove('layout-old'); mc.classList.add('layout-new'); }
-      else { mc.classList.add('layout-old'); }
-    }
-    e.preventDefault();
-    return;
-  }
-
-  // 'x' toggles AGP visibility
-  if (k === 'x' && !e.metaKey && !e.ctrlKey && !e.altKey){
-    const agp = document.getElementById('agpSection');
-    if (agp){ agp.style.display = (agp.style.display === 'none') ? '' : 'none'; }
-    e.preventDefault();
-    return;
-  }
-
-  // 'z' toggles daily strips visibility
-  if (k === 'z' && !e.metaKey && !e.ctrlKey && !e.altKey){
-    const strips = document.getElementById('stripsWrap');
-    if (strips){ strips.style.display = (strips.style.display === 'none') ? '' : 'none'; }
     e.preventDefault();
     return;
   }
@@ -996,11 +943,11 @@ function renderDailyTir(){
     const left = Math.max(0, Math.min(cssW, Math.round(miniScale(sel0))));
     const right = Math.max(0, Math.min(cssW, Math.round(miniScale(sel1))));
     ctx2.save();
-    // fill selected area in grayish-blue
-    ctx2.fillStyle = 'rgba(107, 127, 161, 0.30)';
+    // fill selected area in blue (much darker opacity)
+    ctx2.fillStyle = 'rgba(30, 136, 229, 0.45)';
     if (right > left) ctx2.fillRect(left, 0, right - left, Hplot);
     // selection edge lines in stronger blue
-    ctx2.strokeStyle = '#6b7fa1';
+    ctx2.strokeStyle = '#1e88e5';
     ctx2.lineWidth = 1.5;
     ctx2.beginPath();
     ctx2.moveTo(left + 0.5, 0.5); ctx2.lineTo(left + 0.5, Hplot - 0.5);
@@ -1376,16 +1323,12 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
 // ---- vertical TIR (unchanged) ----
 function updateTIR(idx0,idx1){
   let n=0; let cVL=0,cL=0,cT=0,cH=0,cVH=0;
-  // tight in-range (TTIR): 3.9–7.8 mmol/L or 70–140 mg/dL
-  const tightHigh = isMmol ? 7.8 : 140;
-  let cTight = 0;
   for(let i=idx0;i<=idx1;i++){
     const v=values[i];
     if (!(Number.isFinite(v) && v>=0)) continue;
     n++;
     if(v<TH.vlow)cVL++; else if(v<TH.low)cL++;
     else if(v<=TH.high)cT++; else if(v<=TH.vhigh)cH++; else cVH++;
-    if (v>=TH.low && v<=tightHigh) cTight++;
   }
   const pct=x=> n? Math.round(1000*x/n)/10 : 0;
 
@@ -1453,24 +1396,6 @@ function updateTIR(idx0,idx1){
       .attr("class","pct").attr("fill", l.color).attr("font-size", 11)
       .text(l.text);
   });
-
-  // hover TTIR tooltip
-  try {
-    const tipEl = document.getElementById('tipFull');
-    const tightPct = pct(cTight);
-    const rangeLabel = isMmol ? '3.9–7.8 mmol/L' : '70–140 mg/dL';
-    const show = (event)=>{
-      if (!tipEl) return;
-      const rect = svg.node().getBoundingClientRect();
-      const [mx,my] = d3.pointer(event, svg.node());
-      tipEl.style.display='block';
-      tipEl.style.left = (rect.left + mx + 10) + 'px';
-      tipEl.style.top  = (rect.top + my - 10) + 'px';
-      tipEl.textContent = `TTIR: ${tightPct}% (${rangeLabel})`;
-    };
-    const hide = ()=>{ if (tipEl) tipEl.style.display='none'; };
-    svg.on('mousemove', show).on('mouseleave', hide);
-  } catch {}
 
   // removed TIR header text for cleaner layout
 }
@@ -1609,39 +1534,22 @@ function doUpdateAGP(idx0, idx1){
     svg.append('path').attr('d', aAboveVhStraddle(series)).attr('fill','#f46d43').attr('opacity',0.45);
     svg.append('path').attr('d', aAboveVh(series)).attr('fill','#f46d43').attr('opacity',0.45);
   })();
-  // Median (50%) line colored by band with precise splits at boundaries
+  // Median (50%) line colored by band: red below, green in-range, orange above, scarlet very-high
   try {
     const colorFor = v => (v < TH.low ? '#d73027' : (v > TH.vhigh ? '#f46d43' : (v > TH.high ? '#fdae61' : '#1a9850')));
-    const line50 = d3.line().x(d=>x(d.t)).y(d=>yA(d.p50));
-    const addSeg = (segs, col, a, b) => {
-      if (!Number.isFinite(a.p50) || !Number.isFinite(b.p50)) return;
-      if (!segs.length || segs[segs.length-1].color !== col) segs.push({color:col, arr:[a]});
-      segs[segs.length-1].arr.push(b);
-    };
-    function between(v0,v1,B){ return (v0<B && v1>=B) || (v0>B && v1<=B); }
-    function inter(t0,v0,t1,v1,B){ const t = t0 + (B - v0) * (t1 - t0) / (v1 - v0); return {t, p50:B}; }
-    let segs=[]; let prev=null;
+    const segs = [];
+    let cur = null;
     for (let i=0;i<series.length;i++){
-      const cur = series[i];
-      if (!Number.isFinite(cur.p50)) { prev=null; continue; }
-      if (!prev){ prev=cur; continue; }
-      const t0=prev.t, v0=prev.p50, t1=cur.t, v1=cur.p50;
-      // generate boundary points in order of crossing
-      let pts=[{t:t0,p50:v0}], vprev=v0, tprev=t0;
-      const ths = [TH.low, TH.high, TH.vhigh];
-      const ascend = v1>v0; const ordered = ascend? ths : ths.slice().reverse();
-      ordered.forEach(B=>{ if (between(vprev, v1, B)){ const p=inter(tprev, vprev, t1, v1, B); pts.push(p); vprev=p.p50; tprev=p.t; } });
-      pts.push({t:t1,p50:v1});
-      for (let k=1;k<pts.length;k++){
-        const a=pts[k-1], b=pts[k];
-        const mid = (a.p50 + b.p50)/2 + (b.p50===a.p50? (b.t>a.t?1e-6:-1e-6):0);
-        const col = colorFor(mid);
-        addSeg(segs, col, a, b);
-      }
-      prev=cur;
+      const s = series[i];
+      if (!Number.isFinite(s.p50)) { if (cur){ segs.push(cur); cur=null; } continue; }
+      const col = colorFor(s.p50);
+      if (!cur || cur.color !== col){ if (cur) segs.push(cur); cur = { color: col, arr: [] }; }
+      cur.arr.push(s);
     }
+    if (cur) segs.push(cur);
+    const line50 = d3.line().x(d=>x(d.t)).y(d=>yA(d.p50)).curve(d3.curveMonotoneX);
     segs.forEach(seg=>{
-      if (seg.arr.length<2) return;
+      if (seg.arr.length < 2) return;
       svg.append('path').attr('d', line50(seg.arr))
         .attr('stroke', seg.color).attr('fill','none').attr('stroke-width',2);
     });
