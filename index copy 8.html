@@ -140,7 +140,6 @@
         <li><span class="kbd">C</span>: hide/show the main chart</li>
         <li><span class="kbd">X</span>: hide/show AGP</li>
         <li><span class="kbd">Z</span>: hide/show daily strips</li>
-        <li><span class="kbd">N</span>/<span class="kbd">T</span>/<span class="kbd">P</span>: range presets — General (70–180), Tight (70–140), Pregnancy (63–140)</li>
         <li><span class="kbd">E</span>: toggle layout (stacked vs. two-column)</li>
         <li><span class="kbd">F</span>: hide/show the footer</li>
         <li><span class="kbd">Esc</span>: close dialog or clear URL hash</li>
@@ -239,9 +238,9 @@ const toMg = v => isMmol ? v*18 : v;
 // Dynamic range presets (low/high) with shortcuts:
 // N: General 70–180, T: Tight 70–140, P: Pregnancy 63–140
 function preset(name){
-  if (name==='T'){ return isMmol ? {id:'T',low:3.9, high:7.8, label:'Tight 3.9–7.8'} : {id:'T',low:70, high:140, label:'Tight 70–140'}; }
-  if (name==='P'){ return isMmol ? {id:'P',low:3.5, high:7.8, label:'Pregnancy 3.5–7.8'} : {id:'P',low:63, high:140, label:'Pregnancy 63–140'}; }
-  return isMmol ? {id:'N',low:3.9, high:10.0, label:'General 3.9–10.0'} : {id:'N',low:70, high:180, label:'General 70–180'};
+  if (name==='T'){ return isMmol ? {low:3.9, high:7.8, label:'Tight 3.9–7.8'} : {low:70, high:140, label:'Tight 70–140'}; }
+  if (name==='P'){ return isMmol ? {low:3.5, high:7.8, label:'Pregnancy 3.5–7.8'} : {low:63, high:140, label:'Pregnancy 63–140'}; }
+  return isMmol ? {low:3.9, high:10.0, label:'General 3.9–10.0'} : {low:70, high:180, label:'General 70–180'};
 }
 globalThis.rangePreset = preset('N');
 function LOW(){ return (globalThis.rangePreset?.low ?? TH.low); }
@@ -388,9 +387,7 @@ function drawSeries(){
     const pts = [{t:tPrev, v:vPrev}].concat(intersections(tPrev,vPrev,t,v)).concat([{t:t, v:v}]);
     for (let k=1;k<pts.length;k++){
       const p0=pts[k-1], p1=pts[k];
-      // choose color based on interior midpoint of the subsegment
-      const midVal = (p0.v + p1.v) / 2;
-      const c1 = colorFor(midVal);
+      const c1=colorFor(p1.v - (p1.v===TH.low||p1.v===TH.high||p1.v===TH.vhigh ? (p1.t>p0.t?1e-6:-1e-6):0));
       const px1=x(new Date(p1.t)), py1=y(p1.v);
       // ensure stroke color for this subsegment
       if (!hasPath){ beginAt(x(new Date(p0.t)), y(p0.v), c1); }
@@ -427,13 +424,12 @@ function drawSeries(){
   });
   // left axis and custom ticks matching AGP
   ctx.beginPath();ctx.moveTo(M.l-0.5,M.t);ctx.lineTo(M.l-0.5,H-M.b);ctx.stroke();
-  const yTicks = [VLOW(), LOW(), HIGH(), VHIGH()].filter(tv=>tv>=y.domain()[0] && tv<=y.domain()[1]);
+  const yTicks = isMmol ? [3,4,10,14] : [54,70,180,250];
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
-  yTicks.forEach(tv=>{ const yp=Math.round(y(tv));
+  yTicks.forEach(tv=>{ if (tv<y.domain()[0]||tv>y.domain()[1]) return; const yp=Math.round(y(tv));
     ctx.beginPath();ctx.moveTo(M.l-5,yp);ctx.lineTo(M.l,yp);ctx.stroke();
-    const label = isMmol ? (Math.round(tv*10)/10).toString() : Math.round(tv).toString();
-    ctx.fillText(label, M.l-6, yp);
+    ctx.fillText(isMmol ? tv.toString() : tv.toFixed(0), M.l-6, yp);
   });
   // additional vlow/vhigh light gray lines
   ctx.strokeStyle="#cccccc"; ctx.lineWidth=1;
@@ -698,20 +694,8 @@ window.addEventListener('keydown', (e)=>{
 
 // URL hash helpers for sharing current selection
 function updateHash(d0, d1){
-  const params = new URLSearchParams();
-  params.set('t', `${Math.round(d0)},${Math.round(d1)}`);
-  params.set('p', globalThis.rangePreset?.id || 'N');
-  const agp = document.getElementById('agpSection');
-  const agpVisible = agp ? (agp.style.display !== 'none') : true;
-  const chartWrapEl = document.getElementById('chartWrap');
-  const chartVisible = chartWrapEl ? (chartWrapEl.style.display !== 'none') : true;
-  params.set('a', agpVisible ? '1' : '0');
-  params.set('c', chartVisible ? '1' : '0');
-  params.set('s', globalThis.stripsVisible ? '1' : '0');
-  const mc = document.getElementById('mainContainer');
-  const layoutOld = mc?.classList?.contains('layout-old');
-  params.set('l', layoutOld ? 'old' : 'new');
-  const target = `#${params.toString()}`;
+  const s = `t=${Math.round(d0)},${Math.round(d1)}`;
+  const target = `#${s}`;
   if (location.hash !== target){
     history.replaceState(null, '', target);
   }
@@ -867,19 +851,6 @@ function applyHashSelection(){
     d0 = Math.max(min, Math.min(max, d0));
     d1 = Math.max(min, Math.min(max, d1));
     setDomainViaBrush(d0, d1);
-    // parse additional state: preset, visibilities, layout
-    const qs = new URLSearchParams(location.hash.slice(1));
-    const p = qs.get('p'); if (p){ globalThis.rangePreset = preset(p); }
-    const agpV = qs.get('a');
-    const chartV = qs.get('c');
-    const stripsV = qs.get('s');
-    const layout = qs.get('l');
-    if (stripsV!==null){ globalThis.stripsVisible = stripsV==='1'; const strips = document.getElementById('stripsWrap'); if (strips) strips.style.display = globalThis.stripsVisible ? '' : 'none'; }
-    if (chartV!==null){ const wrap = document.getElementById('chartWrap'); if (wrap){ chartHidden = !(chartV==='1'); wrap.style.display = chartHidden ? 'none' : ''; } }
-    if (agpV!==null){ const agp = document.getElementById('agpSection'); if (agp){ agp.style.display = (agpV==='1') ? '' : 'none'; } }
-    if (layout){ const mc=document.getElementById('mainContainer'); if (mc){ mc.classList.remove('layout-old','layout-new'); mc.classList.add(layout==='old'?'layout-old':'layout-new'); } }
-    // redraw to apply new thresholds/lines
-    drawSeries();
   } else {
     const max = +tDomain[1];
     const min = +tDomain[0];
@@ -989,7 +960,7 @@ function renderDailyTir(){
     let rec = byDay.get(ds);
     if (!rec) { rec = {valid:0, vl:0, l:0, t:0, h:0, vh:0}; byDay.set(ds, rec); }
     rec.valid++;
-    if (v < TH.vlow) rec.vl++; else if (v < LOW()) rec.l++; else if (v <= HIGH()) rec.t++; else if (v <= TH.vhigh) rec.h++; else rec.vh++;
+    if (v < TH.vlow) rec.vl++; else if (v < TH.low) rec.l++; else if (v <= TH.high) rec.t++; else if (v <= TH.vhigh) rec.h++; else rec.vh++;
   }
   if (byDay.size === 0) return;
 
@@ -1193,7 +1164,7 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
     // panel background
     g.append('rect').attr('width', cw).attr('height', cellH).attr('fill', '#fff');
     // target band background
-    const yTop = yC(HIGH())+innerT, yBot = yC(LOW())+innerT;
+    const yTop = yC(TH.high)+innerT, yBot = yC(TH.low)+innerT;
     g.append('rect').attr('x',0).attr('y',Math.min(yTop,yBot)).attr('width',cw).attr('height',Math.abs(yBot-yTop)).attr('fill','#efefef');
     // labels
     const dDate = new Date(ds);
@@ -1201,9 +1172,9 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
       g.append('text').attr('x', cw/2).attr('y', 10).attr('text-anchor','middle').attr('fill','#333').attr('font-size',10).text(fmtWk(dDate));
     }
     g.append('text').attr('x', 2).attr('y', 10).attr('fill','#777').attr('font-size',10).text(fmtDay(dDate));
-    // thresholds (dynamic)
-    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(LOW())+innerT).attr('y2', yC(LOW())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
-    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(HIGH())+innerT).attr('y2', yC(HIGH())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
+    // thresholds
+    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(TH.low)+innerT).attr('y2', yC(TH.low)+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
+    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(TH.high)+innerT).attr('y2', yC(TH.high)+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
     // data for day
     const arr = (dayMap.get(ds) || []).sort((a,b)=>a.t-b.t);
     if (arr.length){
@@ -1219,25 +1190,25 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
       const areaAboveHigh = d3.area()
         .defined(d=>Number.isFinite(d.v) && d.v > TH.high)
         .x(d=>xC(d.t))
-        .y0(yC(HIGH())+innerT)
+        .y0(yC(TH.high)+innerT)
         .y1(d=>yC(d.v)+innerT)
         .curve(d3.curveMonotoneX);
       const areaBelowLow = d3.area()
         .defined(d=>Number.isFinite(d.v) && d.v < TH.low)
         .x(d=>xC(d.t))
         .y0(d=>yC(d.v)+innerT)
-        .y1(yC(LOW())+innerT)
+        .y1(yC(TH.low)+innerT)
         .curve(d3.curveMonotoneX);
       const lineIn = d3.line()
-        .defined(d=>Number.isFinite(d.v) && d.v>=LOW() && d.v<=HIGH())
+        .defined(d=>Number.isFinite(d.v) && d.v>=TH.low && d.v<=TH.high)
         .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
         .curve(d3.curveMonotoneX);
       const lineBelow = d3.line()
-        .defined(d=>Number.isFinite(d.v) && d.v < LOW())
+        .defined(d=>Number.isFinite(d.v) && d.v < TH.low)
         .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
         .curve(d3.curveMonotoneX);
       const lineAbove = d3.line()
-        .defined(d=>Number.isFinite(d.v) && d.v > HIGH())
+        .defined(d=>Number.isFinite(d.v) && d.v > TH.high)
         .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
         .curve(d3.curveMonotoneX);
       segs.forEach(seg=>{
@@ -1464,8 +1435,8 @@ function updateTIR(idx0,idx1){
     const v=values[i];
     if (!(Number.isFinite(v) && v>=0)) continue;
     n++;
-    if(v<TH.vlow)cVL++; else if(v<LOW())cL++;
-    else if(v<=HIGH())cT++; else if(v<=TH.vhigh)cH++; else cVH++;
+    if(v<TH.vlow)cVL++; else if(v<TH.low)cL++;
+    else if(v<=TH.high)cT++; else if(v<=TH.vhigh)cH++; else cVH++;
     if (v>=TH.low && v<=tightHigh) cTight++;
   }
   const pct=x=> n? Math.round(1000*x/n)/10 : 0;
@@ -1626,20 +1597,20 @@ function doUpdateAGP(idx0, idx1){
   // 5%–95% band split: lighter fills (red below, green in-range, orange above high, scarlet above very-high)
   (function drawP05P95Split(){
     const aBelow = d3.area()
-      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p05 < LOW())
+      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p05 < TH.low)
       .x(d=>x(d.t))
-      .y0(d=>yA(Math.min(d.p95, LOW())))
+      .y0(d=>yA(Math.min(d.p95, TH.low)))
       .y1(d=>yA(d.p05));
     const aIn = d3.area()
-      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95>LOW() && d.p05<HIGH())
+      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95>TH.low && d.p05<TH.high)
       .x(d=>x(d.t))
-      .y0(d=>yA(Math.min(d.p95, HIGH())))
-      .y1(d=>yA(Math.max(d.p05, LOW())));
+      .y0(d=>yA(Math.min(d.p95, TH.high)))
+      .y1(d=>yA(Math.max(d.p05, TH.low)));
     const aAboveMid = d3.area()
-      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95 > HIGH() && d.p05 < TH.vhigh)
+      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95 > TH.high && d.p05 < TH.vhigh)
       .x(d=>x(d.t))
       .y0(d=>yA(Math.min(d.p95, TH.vhigh)))
-      .y1(d=>yA(Math.max(d.p05, HIGH())));
+      .y1(d=>yA(Math.max(d.p05, TH.high)));
     const aAboveVh = d3.area()
       .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p05 > TH.vhigh)
       .x(d=>x(d.t))
@@ -1659,15 +1630,15 @@ function doUpdateAGP(idx0, idx1){
   // IQR (25%–75%) split: green within target, orange above target, red below target; very-high as scarlet
   (function drawIqrSplit(){
     const aIn = d3.area()
-      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p75>LOW() && d.p25<HIGH())
+      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p75>TH.low && d.p25<TH.high)
       .x(d=>x(d.t))
-      .y0(d=>yA(Math.min(Math.max(d.p25, LOW()), HIGH())))
-      .y1(d=>yA(Math.max(Math.min(d.p75, HIGH()), LOW())));
+      .y0(d=>yA(Math.min(Math.max(d.p25, TH.low), TH.high)))
+      .y1(d=>yA(Math.max(Math.min(d.p75, TH.high), TH.low)));
     const aAboveMid = d3.area()
-      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p75>HIGH() && d.p25<TH.vhigh)
+      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p75>TH.high && d.p25<TH.vhigh)
       .x(d=>x(d.t))
       .y0(d=>yA(Math.min(d.p75, TH.vhigh)))
-      .y1(d=>yA(Math.max(d.p25, HIGH())));
+      .y1(d=>yA(Math.max(d.p25, TH.high)));
     const aAboveVh = d3.area()
       .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p25>TH.vhigh)
       .x(d=>x(d.t))
@@ -1679,10 +1650,10 @@ function doUpdateAGP(idx0, idx1){
       .y0(d=>yA(d.p75))
       .y1(d=>yA(TH.vhigh));
     const aBelow = d3.area()
-      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p25<LOW())
+      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p25<TH.low)
       .x(d=>x(d.t))
       .y0(d=>yA(d.p25))
-      .y1(d=>yA(Math.min(d.p75, LOW())));
+      .y1(d=>yA(Math.min(d.p75, TH.low)));
     // draw in order: below (red), in (green), above (orange)
     svg.append('path').attr('d', aBelow(series)).attr('fill','#d73027').attr('opacity',0.35);
     svg.append('path').attr('d', aIn(series)).attr('fill','#1a9850').attr('opacity',0.25);
@@ -1690,9 +1661,9 @@ function doUpdateAGP(idx0, idx1){
     svg.append('path').attr('d', aAboveVhStraddle(series)).attr('fill','#f46d43').attr('opacity',0.45);
     svg.append('path').attr('d', aAboveVh(series)).attr('fill','#f46d43').attr('opacity',0.45);
   })();
-  // Median (50%) line colored by band with precise splits at boundaries (dynamic thresholds)
+  // Median (50%) line colored by band with precise splits at boundaries
   try {
-    const colorFor = v => (v < LOW() ? '#d73027' : (v > TH.vhigh ? '#f46d43' : (v > HIGH() ? '#fdae61' : '#1a9850')));
+    const colorFor = v => (v < TH.low ? '#d73027' : (v > TH.vhigh ? '#f46d43' : (v > TH.high ? '#fdae61' : '#1a9850')));
     const line50 = d3.line().x(d=>x(d.t)).y(d=>yA(d.p50));
     const addSeg = (segs, col, a, b) => {
       if (!Number.isFinite(a.p50) || !Number.isFinite(b.p50)) return;
@@ -1709,7 +1680,7 @@ function doUpdateAGP(idx0, idx1){
       const t0=prev.t, v0=prev.p50, t1=cur.t, v1=cur.p50;
       // generate boundary points in order of crossing
       let pts=[{t:t0,p50:v0}], vprev=v0, tprev=t0;
-      const ths = [LOW(), HIGH(), TH.vhigh];
+      const ths = [TH.low, TH.high, TH.vhigh];
       const ascend = v1>v0; const ordered = ascend? ths : ths.slice().reverse();
       ordered.forEach(B=>{ if (between(vprev, v1, B)){ const p=inter(tprev, vprev, t1, v1, B); pts.push(p); vprev=p.p50; tprev=p.t; } });
       pts.push({t:t1,p50:v1});
@@ -1756,9 +1727,9 @@ function doUpdateAGP(idx0, idx1){
   } catch {}
 
   // target lines (green) + vlow/vhigh (light gray)
-  svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(HIGH())).attr('y2',yA(HIGH()))
+  svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(TH.high)).attr('y2',yA(TH.high))
     .attr('stroke','#1a9850').attr('stroke-width',2);
-  svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(LOW())).attr('y2',yA(LOW()))
+  svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(TH.low)).attr('y2',yA(TH.low))
     .attr('stroke','#1a9850').attr('stroke-width',2);
   svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(TH.vlow)).attr('y2',yA(TH.vlow))
     .attr('stroke','#cccccc').attr('stroke-width',1);
@@ -1775,12 +1746,9 @@ function doUpdateAGP(idx0, idx1){
     .tickFormat(t=>fmtHr(Math.round(t/perHr)))
     .tickSizeOuter(0);
   svg.append('g').attr('transform',`translate(0,${H-M.b})`).call(axis);
-  // Y axis: dynamic ticks at vlow/low/high/vhigh (+ cap)
-  const baseTicks = [VLOW(), LOW(), HIGH(), VHIGH()];
-  const cap = isMmol ? 20 : 360;
-  const yTicks = baseTicks.concat(cap).filter(v=>v>=yDom[0] && v<=yDom[1]);
-  const fmtY = isMmol ? (v=> (Math.round(v*10)/10)) : (v=> Math.round(v));
-  svg.append('g').attr('transform',`translate(${M.l},0)`).call(d3.axisLeft(yA).tickValues(yTicks).tickFormat(fmtY));
+  // Y axis: show only key ticks (+ cap label at 20 or 360)
+  const yTicks = isMmol ? [3, 4, 10, 14, 20] : [54, 70, 180, 250, 360];
+  svg.append('g').attr('transform',`translate(${M.l},0)`).call(d3.axisLeft(yA).tickValues(yTicks));
 }
 
 // ---- Summary metrics for selected period ----

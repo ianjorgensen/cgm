@@ -1690,9 +1690,9 @@ function doUpdateAGP(idx0, idx1){
     svg.append('path').attr('d', aAboveVhStraddle(series)).attr('fill','#f46d43').attr('opacity',0.45);
     svg.append('path').attr('d', aAboveVh(series)).attr('fill','#f46d43').attr('opacity',0.45);
   })();
-  // Median (50%) line colored by band with precise splits at boundaries (dynamic thresholds)
+  // Median (50%) line colored by band with precise splits at boundaries
   try {
-    const colorFor = v => (v < LOW() ? '#d73027' : (v > TH.vhigh ? '#f46d43' : (v > HIGH() ? '#fdae61' : '#1a9850')));
+    const colorFor = v => (v < TH.low ? '#d73027' : (v > TH.vhigh ? '#f46d43' : (v > TH.high ? '#fdae61' : '#1a9850')));
     const line50 = d3.line().x(d=>x(d.t)).y(d=>yA(d.p50));
     const addSeg = (segs, col, a, b) => {
       if (!Number.isFinite(a.p50) || !Number.isFinite(b.p50)) return;
@@ -1709,7 +1709,7 @@ function doUpdateAGP(idx0, idx1){
       const t0=prev.t, v0=prev.p50, t1=cur.t, v1=cur.p50;
       // generate boundary points in order of crossing
       let pts=[{t:t0,p50:v0}], vprev=v0, tprev=t0;
-      const ths = [LOW(), HIGH(), TH.vhigh];
+      const ths = [TH.low, TH.high, TH.vhigh];
       const ascend = v1>v0; const ordered = ascend? ths : ths.slice().reverse();
       ordered.forEach(B=>{ if (between(vprev, v1, B)){ const p=inter(tprev, vprev, t1, v1, B); pts.push(p); vprev=p.p50; tprev=p.t; } });
       pts.push({t:t1,p50:v1});
