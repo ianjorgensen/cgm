@@ -145,6 +145,11 @@
         <li><span class="kbd">F</span>: hide/show the footer</li>
         <li><span class="kbd">Esc</span>: close dialog or clear URL hash</li>
       </ul>
+      <h3 style="margin-top:10px;">URL Options</h3>
+      <ul>
+        <li><b>Start Year</b>: add <code>#y=YYYY</code> to start data at Jan 1 of that year (default starts at Oct 10, 2020). Example: <a href="#y=2024">start from 2024</a>.</li>
+        <li><b>Share Selection</b>: press <span class="kbd">L</span> to update the URL with the current time window; it preserves <code>y</code> and other options.</li>
+      </ul>
       <div style="text-align:right; margin-top:8px;"></div>
     </div>
   </div>
@@ -173,16 +178,16 @@
 
 <script type="module">
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
-import { units, t0, stepMs, glucose } from "./cgm_data_test.js";
+import { units, t0, stepMs, glucose } from "./cgm-data/cgm_data.js";
 
 const M={t:20,r:50,b:30,l:50};
 const canvas=document.getElementById("chart");
 const ctx=canvas.getContext("2d",{alpha:false});
 // visibility flags
 globalThis.stripsVisible = globalThis.stripsVisible ?? true; // default visible; toggle with 'Z'
-let chartHidden = true; // toggled by 'C' (default hidden)
-// Apply initial hidden state
-try { const wrap = document.getElementById('chartWrap'); if (wrap) wrap.style.display = 'none'; } catch {}
+let chartHidden = false; // toggled by 'C' (default visible)
+// Ensure initial state reflects visibility
+try { const wrap = document.getElementById('chartWrap'); if (wrap) wrap.style.display = ''; } catch {}
 // responsive canvas width so y-axes align with AGP
 function getCanvasWidth(){
   const agpEl = document.getElementById('agpSection');
@@ -211,18 +216,28 @@ const tStart=new Date(t0).getTime();
 let time=Float64Array.from({length:glucose.length},(_,i)=>tStart+i*stepMs);
 let values=Float64Array.from(glucose);
 
-// Restrict dataset to the last 18 months (~1.5 years) relative to latest sample
+// Optional URL parameter: #y=YYYY to start data from Jan 1 of that year.
+// Default cutoff: Oct 10, 2020 (UTC) when no 'y' param is provided.
+const qs0 = new URLSearchParams((location.hash||'').slice(1));
+const yParam = parseInt(qs0.get('y') || '', 10);
+let cutoffMs = Date.UTC(2020, 9, 10); // Oct 10, 2020 (month is 0-based)
+let startYearParam = null;
+if (Number.isFinite(yParam) && yParam >= 1970 && yParam <= 2100){
+  startYearParam = yParam;
+  cutoffMs = Date.UTC(yParam, 0, 1); // Jan 1 of given year
+}
+globalThis.startYearParam = startYearParam; // for updateHash preservation
+
+// Apply cutoff by slicing arrays from the first bin >= cutoff
 try {
-  const lastTs = time[time.length - 1];
-  const d = new Date(lastTs);
-  // subtract 18 calendar months in UTC
-  const cutoffMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 18, d.getUTCDate());
   const idxStart = Math.max(0, Math.ceil((cutoffMs - time[0]) / stepMs));
   if (idxStart > 0 && idxStart < values.length) {
     time = time.slice(idxStart);
     values = values.slice(idxStart);
   }
 } catch {}
+
+// Use the entire dataset without trimming
 
 const tDomain=[time[0],time[time.length-1]];
 const yDomain=d3.extent(Array.from(values).filter(v=>Number.isFinite(v) && v>=0)) || [0,10];
@@ -503,8 +518,8 @@ canvas.addEventListener('wheel', (e)=>{
     const k = Math.exp(e.deltaY * 0.001);
     const center = (d0 + d1) / 2;
     const minSpan = 24*60*60*1000; // 1 day
-    const maxSpan = 365*24*60*60*1000; // 1 year
     const total = (+tDomain[1]) - (+tDomain[0]);
+    const maxSpan = total; // allow full dataset span
     const newSpan = Math.min(Math.max(minSpan, span * k), Math.min(maxSpan, total));
     setDomainViaBrush(center - newSpan/2, center + newSpan/2);
   } else {
@@ -650,7 +665,7 @@ window.addEventListener("keydown",e=>{
   const [d0,d1] = x.domain().map(d=>+d); // ensure numeric ms
   const center = (d0 + d1) / 2;
   const minSpan = 24*60*60*1000; // 1 day
-  const maxSpan = 365*24*60*60*1000; // 1 year
+  const maxSpan = (+tDomain[1]) - (+tDomain[0]); // allow full dataset span
   const total = (+tDomain[1]) - (+tDomain[0]);
   const newSpan = Math.min(Math.max(minSpan, (d1 - d0) * factor), Math.min(maxSpan, total));
   setDomainViaBrush(center - newSpan/2, center + newSpan/2);
@@ -711,6 +726,7 @@ function updateHash(d0, d1){
   const mc = document.getElementById('mainContainer');
   const layoutOld = mc?.classList?.contains('layout-old');
   params.set('l', layoutOld ? 'old' : 'new');
+  if (globalThis.startYearParam){ params.set('y', String(globalThis.startYearParam)); }
   const target = `#${params.toString()}`;
   if (location.hash !== target){
     history.replaceState(null, '', target);
@@ -726,7 +742,7 @@ function setDomainViaBrush(d0, d1){
   d0 = Math.max(min, Math.min(max, d0));
   d1 = Math.max(min, Math.min(max, d1));
   const minSpan = 24*60*60*1000; // 1 day
-  const maxSpan = 365*24*60*60*1000; // 1 year
+  const maxSpan = (+tDomain[1]) - (+tDomain[0]); // allow full dataset span
   let span = d1 - d0;
   if (span < minSpan){
     const center = (d0 + d1) / 2;
@@ -857,7 +873,7 @@ const brushG = miniSvg.append("g").call(brush);
   overlay.on('mousedown', onDown).on('mouseup', onUp);
 })();
 
-// initialize selection from URL hash (t=startMs,endMs) or default to last 14 days
+// initialize selection from URL hash (t=startMs,endMs) or default to FULL range
 function applyHashSelection(){
   const m = (location.hash||'').match(/t=(\d+),(\d+)/);
   if (m){
@@ -881,11 +897,9 @@ function applyHashSelection(){
     // redraw to apply new thresholds/lines
     drawSeries();
   } else {
-    const max = +tDomain[1];
     const min = +tDomain[0];
-    const d0 = Math.max(min, max - 14*24*60*60*1000);
-    const d1 = max;
-    setDomainViaBrush(d0, d1);
+    const max = +tDomain[1];
+    setDomainViaBrush(min, max);
   }
 }
 applyHashSelection();

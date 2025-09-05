@@ -9,18 +9,65 @@ import SwiftUI
 
 struct ContentView: View {
   @StateObject private var hk = HealthKitExporter()
+  @StateObject private var gh = GitHubPusher()
   @State private var shareURL: URL?
   @State private var isSharing = false
   @State private var status = ""
+  @State private var showFolderPicker = false
+  @State private var hasRepoFolder = RepoFolderBookmark.resolve() != nil
+  @State private var showClearConfirm = false
+  @State private var showGitHubSheet = false
 
   var body: some View {
     NavigationView {
       VStack(spacing: 16) {
+        // Summary row
+        summaryView
+
+        // Background control + last sync
+        Toggle(isOn: Binding(get: { hk.backgroundEnabled }, set: { hk.setBackgroundEnabled($0) })) {
+          Text("Background Updates")
+        }
+        .toggleStyle(.switch)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 6) {
+          Text("Last sync:")
+          Text(formatDate(hk.lastSyncDate, dateStyle: .medium, timeStyle: .short)).bold()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        HStack(spacing: 12) {
+          Button(hasRepoFolder ? "Change Repo Folder" : "Choose Repo Folder") {
+            showFolderPicker = true
+          }
+          .buttonStyle(.bordered)
+
+          if hasRepoFolder {
+            Button("Export to Repo") {
+              Task {
+                status = "Exporting…"
+                do {
+                  let res = try await hk.exportCGMJS(preferredUnits: .mmolL)
+                    _ = try hk.copyExport(toBookmarkedFolder: res.url)
+                  status = "Wrote cgm_data.js to repo\n\(res.t0ISO) → \(res.t1ISO)\n(\(res.count) points)"
+                } catch {
+                  status = "Repo export error: \(error.localizedDescription) — please reselect the folder."
+                  showFolderPicker = true
+                }
+              }
+            }
+            .buttonStyle(.borderedProminent)
+          }
+        }
+
         Button("Request Health Access") {
           Task {
             do {
               try await hk.requestAuthorization()
               status = "Authorized to read Blood Glucose"
+              try await hk.syncLatest()
+              await hk.refreshSummary()
+              hk.startBackgroundDelivery()
             } catch {
               status = "Auth error: \(error.localizedDescription)"
             }
@@ -28,9 +75,59 @@ struct ContentView: View {
         }
         .buttonStyle(.borderedProminent)
 
+        Button("Sync Latest From Health") {
+          Task {
+            status = "Syncing…"
+            do {
+              try await hk.syncLatest()
+              await hk.refreshSummary()
+              status = "Synced. Readings: \(hk.totalSamples)"
+            } catch {
+              status = "Sync error: \(error.localizedDescription)"
+            }
+          }
+        }
+        .buttonStyle(.bordered)
+
+        exportButton(title: "Export to File", units: .mmolL)
+
+        Button(role: .destructive) {
+          showClearConfirm = true
+        } label: {
+          Text("Clear Cache")
+        }
+        .buttonStyle(.bordered)
+        .alert("Clear local cache?", isPresented: $showClearConfirm) {
+          Button("Cancel", role: .cancel) {}
+          Button("Clear", role: .destructive) {
+            hk.clearCache()
+            status = "Cache cleared"
+          }
+        } message: {
+          Text("Removes stored readings and the last-sync marker. Background updates will refill as new data arrives.")
+        }
+
+        // GitHub section
+        Divider()
         HStack(spacing: 12) {
-          exportButton(title: "Export mmol/L", units: .mmolL)
-          exportButton(title: "Export mg/dL", units: .mgdL)
+          Button("GitHub Settings") { showGitHubSheet = true }
+            .buttonStyle(.bordered)
+          Button("Commit + Push to GitHub") {
+            Task {
+              status = "Preparing upload…"
+              do {
+                let res = try await hk.exportCGMJS(preferredUnits: .mmolL)
+                let data = try Data(contentsOf: res.url)
+                let msg = "export: update cgm_data.js (\(res.count) pts, up to \(res.t1ISO))"
+                try await gh.pushFile(data: data, message: msg)
+                status = "Pushed to GitHub: \(gh.owner)/\(gh.repo)@\(gh.branch)"
+              } catch {
+                status = "GitHub push error: \(error.localizedDescription)"
+              }
+            }
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(!gh.tokenPresent() || gh.owner.isEmpty || gh.repo.isEmpty)
         }
 
         if !status.isEmpty {
@@ -45,12 +142,57 @@ struct ContentView: View {
       }
       .padding()
       .navigationTitle("CGM Export")
+      .task {
+        hk.loadCache()
+        hk.loadSettings()
+        await hk.refreshSummary()
+        hk.startBackgroundDelivery()
+      }
       .sheet(isPresented: $isSharing) {
         if let url = shareURL {
           ShareSheet(items: [url]) { status = "Saved/Shared cgm_data.js" }
         }
       }
+      .sheet(isPresented: $showFolderPicker) {
+        FolderPicker { url in
+          do {
+            try RepoFolderBookmark.save(url: url)
+            hasRepoFolder = true
+            status = "Repo folder set: \(url.lastPathComponent)"
+          } catch {
+            status = "Could not save folder bookmark: \(error.localizedDescription)"
+          }
+          showFolderPicker = false
+        }
+      }
+      .sheet(isPresented: $showGitHubSheet) { GitHubSettingsView(gh: gh) }
     }
+  }
+
+  private var summaryView: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack {
+        Text("Readings:")
+        Text("\(hk.totalSamples)").bold()
+      }
+      HStack(spacing: 6) {
+        Text("First:")
+        Text(formatDate(hk.firstSampleDate, dateStyle: .medium, timeStyle: .none)).bold()
+      }
+      HStack(spacing: 6) {
+        Text("Last:")
+        Text(formatDate(hk.lastSampleDate, dateStyle: .medium, timeStyle: .short)).bold()
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func formatDate(_ date: Date?, dateStyle: DateFormatter.Style, timeStyle: DateFormatter.Style) -> String {
+    guard let d = date else { return "–" }
+    let df = DateFormatter()
+    df.dateStyle = dateStyle
+    df.timeStyle = timeStyle
+    return df.string(from: d)
   }
 
   private func exportButton(title: String, units: HealthKitExporter.Units) -> some View {
@@ -60,7 +202,7 @@ struct ContentView: View {
         do {
           let res = try await hk.exportCGMJS(preferredUnits: units)
           shareURL = res.url
-          status = "Exported \(res.count) points (\(res.units.rawValue)) starting \(res.t0ISO)"
+          status = "Exported \(res.count) 5‑min points (\(res.units.rawValue))\n\(res.t0ISO) → \(res.t1ISO)"
           isSharing = true
         } catch {
           status = "Export error: \(error.localizedDescription)"
