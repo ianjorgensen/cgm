@@ -156,7 +156,7 @@
   <!-- Sticky bottom bar: mini overview time picker -->
   <div class="bottombar">
     <div class="container">
-      <!-- Hide mini brush; keep DOM for scale calculations -->
+      <!-- Mini sparkline + brush (visible by default) -->
       <svg id="mini" height="140" style="width:100%; display:none;"></svg>
       <!-- Daily TIR stripes (one column per day) in footer -->
       <div id="dailyTirWrap" style="margin-top:8px;">
@@ -185,9 +185,9 @@ const canvas=document.getElementById("chart");
 const ctx=canvas.getContext("2d",{alpha:false});
 // visibility flags
 globalThis.stripsVisible = globalThis.stripsVisible ?? true; // default visible; toggle with 'Z'
-let chartHidden = false; // toggled by 'C' (default visible)
-// Ensure initial state reflects visibility
-try { const wrap = document.getElementById('chartWrap'); if (wrap) wrap.style.display = ''; } catch {}
+let chartHidden = true; // decide default after data load; 'C' toggles
+// Avoid flash until we decide
+try { const wrap = document.getElementById('chartWrap'); if (wrap) wrap.style.display = 'none'; } catch {}
 // responsive canvas width so y-axes align with AGP
 function getCanvasWidth(){
   const agpEl = document.getElementById('agpSection');
@@ -244,6 +244,18 @@ const yDomain=d3.extent(Array.from(values).filter(v=>Number.isFinite(v) && v>=0)
 
 const x=d3.scaleTime().domain(tDomain).range([M.l,W-M.r]);
 const y=d3.scaleLinear().domain(yDomain).nice().range([H-M.b,M.t]);
+
+// Decide default chart visibility based on loaded span unless hash 'c' overrides
+try {
+  const qsInit = new URLSearchParams((location.hash||'').slice(1));
+  const cParam = qsInit.get('c');
+  if (cParam === null){
+    const dayMs = 24*60*60*1000;
+    chartHidden = ((+tDomain[1]) - (+tDomain[0])) > dayMs; // hide unless only 1 day loaded
+    const wrap = document.getElementById('chartWrap');
+    if (wrap) wrap.style.display = chartHidden ? 'none' : '';
+  }
+} catch {}
 
 const isMmol = /mmol/i.test(units);
 const TH = isMmol
@@ -873,7 +885,7 @@ const brushG = miniSvg.append("g").call(brush);
   overlay.on('mousedown', onDown).on('mouseup', onUp);
 })();
 
-// initialize selection from URL hash (t=startMs,endMs) or default to FULL range
+// initialize selection from URL hash (t=startMs,endMs) or default to last 14 days
 function applyHashSelection(){
   const m = (location.hash||'').match(/t=(\d+),(\d+)/);
   if (m){
@@ -897,9 +909,12 @@ function applyHashSelection(){
     // redraw to apply new thresholds/lines
     drawSeries();
   } else {
-    const min = +tDomain[0];
     const max = +tDomain[1];
-    setDomainViaBrush(min, max);
+    const min = +tDomain[0];
+    const DAY = 24*60*60*1000;
+    const d0 = Math.max(min, max - 14*DAY);
+    const d1 = max;
+    setDomainViaBrush(d0, d1);
   }
 }
 applyHashSelection();

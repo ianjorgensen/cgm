@@ -10,6 +10,7 @@ import SwiftUI
 struct ContentView: View {
   @StateObject private var hk = HealthKitExporter()
   @StateObject private var gh = GitHubPusher()
+  @Environment(\.openURL) private var openURL
   @State private var shareURL: URL?
   @State private var isSharing = false
   @State private var status = ""
@@ -83,6 +84,12 @@ struct ContentView: View {
           Text("Removes stored readings and the last-sync marker. Background updates will refill as new data arrives.")
         }
 
+        // Web Viewer link
+        Button("Open CGM Viewer in Safari") {
+          if let url = URL(string: "https://ianjorgensen.github.io/cgm/#y=2025") { openURL(url) }
+        }
+        .buttonStyle(.bordered)
+
         // GitHub section
         Divider()
         HStack(spacing: 12) {
@@ -108,6 +115,8 @@ struct ContentView: View {
           .buttonStyle(.borderedProminent)
           .disabled(!gh.hasToken || gh.owner.isEmpty || gh.repo.isEmpty)
         }
+
+        
 
         if !status.isEmpty {
           Text(status)
