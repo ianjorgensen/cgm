@@ -13,8 +13,7 @@ struct ContentView: View {
   @State private var shareURL: URL?
   @State private var isSharing = false
   @State private var status = ""
-  @State private var showFolderPicker = false
-  @State private var hasRepoFolder = RepoFolderBookmark.resolve() != nil
+  // Removed local repo export flow (folder picker)
   @State private var showClearConfirm = false
   @State private var showGitHubSheet = false
 
@@ -36,29 +35,6 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
 
-        HStack(spacing: 12) {
-          Button(hasRepoFolder ? "Change Repo Folder" : "Choose Repo Folder") {
-            showFolderPicker = true
-          }
-          .buttonStyle(.bordered)
-
-          if hasRepoFolder {
-            Button("Export to Repo") {
-              Task {
-                status = "Exporting…"
-                do {
-                  let res = try await hk.exportCGMJS(preferredUnits: .mmolL)
-                    _ = try hk.copyExport(toBookmarkedFolder: res.url)
-                  status = "Wrote cgm_data.js to repo\n\(res.t0ISO) → \(res.t1ISO)\n(\(res.count) points)"
-                } catch {
-                  status = "Repo export error: \(error.localizedDescription) — please reselect the folder."
-                  showFolderPicker = true
-                }
-              }
-            }
-            .buttonStyle(.borderedProminent)
-          }
-        }
 
         Button("Request Health Access") {
           Task {
@@ -122,12 +98,15 @@ struct ContentView: View {
                 try await gh.pushFile(data: data, message: msg)
                 status = "Pushed to GitHub: \(gh.owner)/\(gh.repo)@\(gh.branch)"
               } catch {
-                status = "GitHub push error: \(error.localizedDescription)"
+                let ns = error as NSError
+                let dbg = (ns.userInfo["debug"] as? String) ?? ns.localizedDescription
+                status = "GitHub push error:\n\(dbg)"
+                print("GitHub push failed: \(dbg)")
               }
             }
           }
           .buttonStyle(.borderedProminent)
-          .disabled(!gh.tokenPresent() || gh.owner.isEmpty || gh.repo.isEmpty)
+          .disabled(!gh.hasToken || gh.owner.isEmpty || gh.repo.isEmpty)
         }
 
         if !status.isEmpty {
@@ -151,18 +130,6 @@ struct ContentView: View {
       .sheet(isPresented: $isSharing) {
         if let url = shareURL {
           ShareSheet(items: [url]) { status = "Saved/Shared cgm_data.js" }
-        }
-      }
-      .sheet(isPresented: $showFolderPicker) {
-        FolderPicker { url in
-          do {
-            try RepoFolderBookmark.save(url: url)
-            hasRepoFolder = true
-            status = "Repo folder set: \(url.lastPathComponent)"
-          } catch {
-            status = "Could not save folder bookmark: \(error.localizedDescription)"
-          }
-          showFolderPicker = false
         }
       }
       .sheet(isPresented: $showGitHubSheet) { GitHubSettingsView(gh: gh) }

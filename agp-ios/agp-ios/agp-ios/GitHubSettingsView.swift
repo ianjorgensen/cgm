@@ -1,9 +1,12 @@
 import SwiftUI
+import UIKit
 
 struct GitHubSettingsView: View {
   @ObservedObject var gh: GitHubPusher
   @Environment(\.dismiss) private var dismiss
   @State private var token: String = ""
+  @State private var showSavedToken = false
+  @State private var saveError: String? = nil
 
   var body: some View {
     NavigationView {
@@ -16,12 +19,32 @@ struct GitHubSettingsView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
         }
-        Section(header: Text("Token"), footer: Text("Create a fine‑grained PAT with 'Contents: Read and Write' on the repo. It is stored securely in your Keychain.")) {
+        Section(header: Text("Token"), footer: Text("Create a fine‑grained PAT with 'Contents: Read and Write' for ianjorgensen/cgm. The token is stored in your device Keychain (never in the repo).")) {
           SecureField("GitHub Personal Access Token", text: $token)
-          HStack {
-            Button("Save Token") { gh.setToken(token); token = "" }
-            Spacer()
-            if gh.tokenPresent() { Text("✓ Saved").foregroundColor(.green) }
+          Button("Paste from Clipboard") {
+            if let s = UIPasteboard.general.string { token = s.trimmingCharacters(in: .whitespacesAndNewlines) }
+          }
+          Button("Save Token") {
+            do {
+              try gh.setToken(token)
+              saveError = nil
+            } catch {
+              saveError = error.localizedDescription
+            }
+          }
+          Button("Clear Token", role: .destructive) {
+            gh.clearToken(); showSavedToken = false
+          }
+          Toggle(isOn: $showSavedToken) { Text("Show Saved Token") }
+          if gh.hasToken { Text("✓ Saved").foregroundColor(.green) } else { Text("No token").foregroundColor(.secondary) }
+          if let err = saveError { Text(err).foregroundColor(.red).font(.footnote) }
+          if showSavedToken {
+            let saved = gh.currentToken() ?? ""
+            ScrollView(.horizontal) {
+              Text(saved.isEmpty ? "(no token saved)" : saved)
+                .font(.system(.footnote, design: .monospaced))
+                .textSelection(.enabled)
+            }
           }
         }
       }
@@ -29,8 +52,10 @@ struct GitHubSettingsView: View {
       .toolbar {
         ToolbarItem(placement: .cancellationAction) { Button("Close") { gh.save(); dismiss() } }
       }
-      .onAppear { gh.load() }
+      .onAppear {
+        gh.load()
+        token = gh.currentToken() ?? ""
+      }
     }
   }
 }
-
