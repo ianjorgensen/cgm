@@ -1179,17 +1179,30 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
   const cellH = 90, innerT = 16; // space for labels
   const cw = Math.floor((Wbox - Mx.l - Mx.r - hGap*(cols-1))/cols);
   const dayMs = 24*60*60*1000;
-  // collect days in current selection
+  // selection window (absolute ms)
+  const sel0 = +x.domain()[0];
+  const sel1 = +x.domain()[1];
+  // collect days touched by current selection
   const dayMap = new Map();
   for (let i=idx0;i<=idx1;i++){
     const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
     const d = new Date(time[i]);
     const ds = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-    let arr = dayMap.get(ds); if (!arr){ arr=[]; dayMap.set(ds, arr); }
-    arr.push({ t: time[i] - ds, v }); // time-of-day offset
+    if (!dayMap.has(ds)) dayMap.set(ds, []);
   }
   let days = Array.from(dayMap.keys()).sort((a,b)=>a-b);
   if (!days.length){ svg.selectAll('*').remove(); return; }
+  // For each selected day, gather full-day samples (inside and outside selection)
+  const selectedDays = new Set(days);
+  const dayMapFull = new Map();
+  for (let i=0;i<values.length;i++){
+    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
+    const d = new Date(time[i]);
+    const ds = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    if (!selectedDays.has(ds)) continue;
+    let arr = dayMapFull.get(ds); if (!arr){ arr=[]; dayMapFull.set(ds, arr); }
+    arr.push({ t: time[i] - ds, v, abs: time[i] });
+  }
   // Build full Monday→Sunday grid covering ALL selected days
   const firstDs = days[0];
   const lastDs = days[days.length-1];
@@ -1234,7 +1247,7 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
     g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(LOW())+innerT).attr('y2', yC(LOW())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
     g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(HIGH())+innerT).attr('y2', yC(HIGH())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
     // data for day
-    const arr = (dayMap.get(ds) || []).sort((a,b)=>a.t-b.t);
+    const arr = (dayMapFull.get(ds) || []).sort((a,b)=>a.t-b.t);
     if (arr.length){
       // split into contiguous segments to avoid connecting across gaps
       const gapMs = Math.max(3*stepMs, 45*60*1000); // at least 45min or 3 samples
@@ -1244,33 +1257,39 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
         if ((arr[i].t - arr[i-1].t) > gapMs){ segs.push(cur); cur=[arr[i]]; } else cur.push(arr[i]);
       }
       if (cur.length) segs.push(cur);
-
+      // Grey line for samples outside the selected window
+      const lineGrey = d3.line()
+        .defined(d=>Number.isFinite(d.v) && (d.abs < sel0 || d.abs > sel1))
+        .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
+        .curve(d3.curveMonotoneX);
       const areaAboveHigh = d3.area()
-        .defined(d=>Number.isFinite(d.v) && d.v > TH.high)
+        .defined(d=>Number.isFinite(d.v) && d.v > TH.high && d.abs>=sel0 && d.abs<=sel1)
         .x(d=>xC(d.t))
         .y0(yC(HIGH())+innerT)
         .y1(d=>yC(d.v)+innerT)
         .curve(d3.curveMonotoneX);
       const areaBelowLow = d3.area()
-        .defined(d=>Number.isFinite(d.v) && d.v < TH.low)
+        .defined(d=>Number.isFinite(d.v) && d.v < TH.low && d.abs>=sel0 && d.abs<=sel1)
         .x(d=>xC(d.t))
         .y0(d=>yC(d.v)+innerT)
         .y1(yC(LOW())+innerT)
         .curve(d3.curveMonotoneX);
       const lineIn = d3.line()
-        .defined(d=>Number.isFinite(d.v) && d.v>=LOW() && d.v<=HIGH())
+        .defined(d=>Number.isFinite(d.v) && d.v>=LOW() && d.v<=HIGH() && d.abs>=sel0 && d.abs<=sel1)
         .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
         .curve(d3.curveMonotoneX);
       const lineBelow = d3.line()
-        .defined(d=>Number.isFinite(d.v) && d.v < LOW())
+        .defined(d=>Number.isFinite(d.v) && d.v < LOW() && d.abs>=sel0 && d.abs<=sel1)
         .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
         .curve(d3.curveMonotoneX);
       const lineAbove = d3.line()
-        .defined(d=>Number.isFinite(d.v) && d.v > HIGH())
+        .defined(d=>Number.isFinite(d.v) && d.v > HIGH() && d.abs>=sel0 && d.abs<=sel1)
         .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
         .curve(d3.curveMonotoneX);
       segs.forEach(seg=>{
         if (seg.length<2) return;
+        // outside selection (grey)
+        g.append('path').attr('d', lineGrey(seg)).attr('fill','none').attr('stroke','#bbb').attr('stroke-width',1.2).attr('opacity',0.9);
         // fill above target (orange) and below target (red) — more opaque than the lines
         g.append('path').attr('d', areaAboveHigh(seg)).attr('fill','#fdae61').attr('opacity',0.35);
         g.append('path').attr('d', areaBelowLow(seg)).attr('fill','#d73027').attr('opacity',0.35);
