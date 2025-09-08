@@ -338,41 +338,26 @@ function drawSeries(){
   const idx0=Math.max(0,Math.floor((t0v-time[0])/stepMs));
   const idx1=Math.min(values.length-1,Math.ceil((t1v-time[0])/stepMs));
 
-  // Toggle visibility when selection is too wide (>90 days)
-  const dayMs = 24*60*60*1000;
-  const tooWide = (t1v - t0v) > 90*dayMs;
-  const chartEl = document.getElementById('chart');
-  const chartMsg = document.getElementById('chartMsg');
-  const chartWrapEl = document.getElementById('chartWrap');
-  const stripsWrapEl = document.getElementById('stripsWrap');
-
-  // If exactly 1 day is selected, always show chart; keep strips visible; hide AGP section
-  const isOneDay = Math.abs((t1v - t0v) - dayMs) < 5; // allow tiny rounding
-  if (isOneDay){
-    if (chartWrapEl) chartWrapEl.style.display = '';
-    if (stripsWrapEl) stripsWrapEl.style.display = (globalThis.stripsVisible ? '' : 'none');
-    try { const agp = document.getElementById('agpSection'); if (agp) agp.style.display = 'none'; } catch {}
-  } else {
-    if (stripsWrapEl) stripsWrapEl.style.display = (globalThis.stripsVisible ? '' : 'none');
-    if (chartWrapEl) chartWrapEl.style.display = chartHidden ? 'none' : '';
+  // Decide AGP vs chart based on number of unique days in selection
+  const showAGP = updateAGPVisibility(idx0, idx1);
+  if (showAGP) {
+    updateTIR(idx0, idx1);
+    const ok = updateAGP(idx0, idx1);
+    if (ok){
+      updateSummary(idx0, idx1);
+      renderDailyTir();
+      renderStrips(idx0, idx1);
+      return;
+    }
+    //const agpWrap = document.getElementById('agpSection'); if (agpWrap) agpWrap.style.display='none';
+    //const chartWrap = document.getElementById('chartWrap'); if (chartWrap) chartWrap.style.display='';
   }
-  if (chartMsg) chartMsg.style.display = tooWide ? 'flex' : 'none';
-  if (chartEl) chartEl.style.visibility = tooWide ? 'hidden' : 'visible';
+  // Ensure strips visibility reflects toggle
+  const stripsWrapEl = document.getElementById('stripsWrap');
+  if (stripsWrapEl) stripsWrapEl.style.display = (globalThis.stripsVisible ? '' : 'none');
 
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
-
-  if (tooWide){
-    // Still update side panels/AGP/summary based on current idx, but skip drawing the chart
-    updateTIR(idx0, idx1);
-    const showAGP = updateAGPVisibility(idx0, idx1);
-    if (showAGP) updateAGP(idx0, idx1);
-    updateSummary(idx0, idx1);
-    // Also refresh Daily TIR to reflect selection overlay even when chart is hidden
-    renderDailyTir();
-    renderStrips(idx0, idx1);
-    return;
-  }
 
   // no background bands (keep chart clean)
 
@@ -442,11 +427,15 @@ function drawSeries(){
   if (spanMs <= oneDay*2) {
     const every = spanMs <= oneDay ? 2 : 3; // every 2h if <=1d else every 3h
     xticks = x.ticks(d3.timeHour.every(every));
-    fmtTick = timeHM; // HH:MM
+    // At local midnight, show the date instead of 00:00
+    fmtTick = (t)=> (t.getHours()===0 && t.getMinutes()===0 ? fmtAxisDate(t) : timeHM(t));
     xOffset = 0;
   } else {
-    xticks = x.ticks(6);
-    fmtTick = fmtAxisDate; // Mon 1st
+    // Day-level ticks; ensure one tick per calendar day (no duplicates)
+    const start = d3.timeDay.floor(xd0);
+    const end   = d3.timeDay.ceil(xd1);
+    xticks = d3.timeDay.range(start, end, 1);
+    fmtTick = fmtAxisDate; // Apr 27th
     xOffset = 0;
   }
   xticks.forEach(t=>{ const xp=Math.round(x(t));
@@ -471,8 +460,6 @@ function drawSeries(){
   // removed chart title text for a cleaner look
 
   updateTIR(idx0, idx1);
-  const showAGP = updateAGPVisibility(idx0, idx1);
-  if (showAGP) updateAGP(idx0, idx1);
   updateSummary(idx0, idx1);
   // keep daily TIR overlay in sync with current selection
   renderDailyTir();
@@ -731,10 +718,7 @@ function updateHash(d0, d1){
   params.set('p', globalThis.rangePreset?.id || 'N');
   const agp = document.getElementById('agpSection');
   const agpVisible = agp ? (agp.style.display !== 'none') : true;
-  const chartWrapEl = document.getElementById('chartWrap');
-  const chartVisible = chartWrapEl ? (chartWrapEl.style.display !== 'none') : true;
   params.set('a', agpVisible ? '1' : '0');
-  params.set('c', chartVisible ? '1' : '0');
   params.set('s', globalThis.stripsVisible ? '1' : '0');
   const mc = document.getElementById('mainContainer');
   const layoutOld = mc?.classList?.contains('layout-old');
@@ -888,36 +872,42 @@ const brushG = miniSvg.append("g").call(brush);
 
 // initialize selection from URL hash (t=startMs,endMs) or default to last 14 days
 function applyHashSelection(){
-  const m = (location.hash||'').match(/t=(\d+),(\d+)/);
-  if (m){
-    let d0 = +m[1], d1 = +m[2];
-    const min=+tDomain[0], max=+tDomain[1];
-    if (isNaN(d0)||isNaN(d1)||d0>=d1){ d0 = Math.max(min, max-14*24*60*60*1000); d1 = max; }
+  const qs = new URLSearchParams((location.hash||'').slice(1));
+  const tParam = qs.get('t');
+  const min = +tDomain[0], max = +tDomain[1];
+  function parseEdge(x){
+    if (!x) return NaN;
+    if (/^\d+$/.test(x)) return +x;
+    const d = Date.parse(x); return Number.isFinite(d) ? d : NaN;
+  }
+  if (tParam){
+    const parts = tParam.split(',');
+    let d0 = parseEdge(parts[0]);
+    let d1 = parseEdge(parts[1]);
+    if (!Number.isFinite(d0) || !Number.isFinite(d1) || d0 >= d1){
+      const DAY = 24*60*60*1000; d0 = Math.max(min, max - 14*DAY); d1 = max;
+    }
     d0 = Math.max(min, Math.min(max, d0));
     d1 = Math.max(min, Math.min(max, d1));
     setDomainViaBrush(d0, d1);
-    // parse additional state: preset, visibilities, layout
-    const qs = new URLSearchParams(location.hash.slice(1));
-    const p = qs.get('p'); if (p){ globalThis.rangePreset = preset(p); }
-    const agpV = qs.get('a');
-    const chartV = qs.get('c');
-    const stripsV = qs.get('s');
-    const layout = qs.get('l');
-    if (stripsV!==null){ globalThis.stripsVisible = stripsV==='1'; const strips = document.getElementById('stripsWrap'); if (strips) strips.style.display = globalThis.stripsVisible ? '' : 'none'; }
-    if (chartV!==null){ const wrap = document.getElementById('chartWrap'); if (wrap){ chartHidden = !(chartV==='1'); wrap.style.display = chartHidden ? 'none' : ''; } }
-    if (agpV!==null){ const agp = document.getElementById('agpSection'); if (agp){ agp.style.display = (agpV==='1') ? '' : 'none'; } }
-    if (layout){ const mc=document.getElementById('mainContainer'); if (mc){ mc.classList.remove('layout-old','layout-new'); mc.classList.add(layout==='old'?'layout-old':'layout-new'); } }
-    // redraw to apply new thresholds/lines
-    drawSeries();
   } else {
-    const max = +tDomain[1];
-    const min = +tDomain[0];
     const DAY = 24*60*60*1000;
     const d0 = Math.max(min, max - 14*DAY);
     const d1 = max;
     setDomainViaBrush(d0, d1);
   }
+  const p = qs.get('p'); if (p){ globalThis.rangePreset = preset(p); }
+  const agpV = qs.get('a');
+  const chartV = qs.get('c');
+  const stripsV = qs.get('s');
+  const layout = qs.get('l');
+  if (stripsV!==null){ globalThis.stripsVisible = stripsV==='1'; const strips = document.getElementById('stripsWrap'); if (strips) strips.style.display = globalThis.stripsVisible ? '' : 'none'; }
+  // ignore legacy chart visibility param (c=)
+  if (agpV!==null){ const agp = document.getElementById('agpSection'); if (agp){ agp.style.display = (agpV==='1') ? '' : 'none'; } }
+  if (layout){ const mc=document.getElementById('mainContainer'); if (mc){ mc.classList.remove('layout-old','layout-new'); mc.classList.add(layout==='old'?'layout-old':'layout-new'); } }
+  drawSeries();
 }
+
 applyHashSelection();
 window.addEventListener('hashchange', applyHashSelection);
 
@@ -1179,11 +1169,12 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
   const cols = 7, hGap = 10, vGap = 12;
   const cellH = 90, innerT = 16; // space for labels
   const cw = Math.floor((Wbox - Mx.l - Mx.r - hGap*(cols-1))/cols);
+  const headerH = 24; // top header above tiles for weekday + day labels
   const dayMs = 24*60*60*1000;
   // selection window (absolute ms)
   const sel0 = +x.domain()[0];
   const sel1 = +x.domain()[1];
-  // collect days touched by current selection
+  // collect days touched by current selection (by data)
   const dayMap = new Map();
   for (let i=idx0;i<=idx1;i++){
     const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
@@ -1192,10 +1183,18 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
     if (!dayMap.has(ds)) dayMap.set(ds, []);
   }
   let days = Array.from(dayMap.keys()).sort((a,b)=>a-b);
-  if (!days.length){ svg.selectAll('*').remove(); return; }
-  // Build full Monday→Sunday grid covering ALL selected days
-  const firstDs = days[0];
-  const lastDs = days[days.length-1];
+  // If there is no data in the selection, fall back to using the selected date span
+  let firstDs, lastDs;
+  if (!days.length){
+    const selStart = new Date(x.domain()[0]);
+    const selEnd   = new Date(x.domain()[1]);
+    firstDs = new Date(selStart.getFullYear(), selStart.getMonth(), selStart.getDate()).getTime();
+    lastDs  = new Date(selEnd.getFullYear(), selEnd.getMonth(), selEnd.getDate()).getTime();
+  } else {
+    firstDs = days[0];
+    lastDs  = days[days.length-1];
+  }
+  // Build full Monday→Sunday grid covering selection (even when no data)
   const getMonday = (ds)=>{
     const d = new Date(ds);
     const day = d.getDay(); // 0..6, Sunday=0
@@ -1204,13 +1203,19 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
   };
   const startMonday = getMonday(firstDs);
   const endSunday = getMonday(lastDs) + 6*dayMs; // end of the week containing last day
+  // Helper to advance by 1 local calendar day (handles DST 23/25h days)
+  const nextLocalMidnight = (t)=>{
+    const d = new Date(t); d.setDate(d.getDate()+1); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
   const gridDays = [];
   // Hide future days: only include panels up to today's local midnight
   const now = new Date();
   const todayDs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  for (let t=startMonday; t<=endSunday; t+=dayMs){ if (t <= todayDs) gridDays.push(t); }
+  for (let t=startMonday; t<=endSunday; t=nextLocalMidnight(t)){
+    if (t <= todayDs) gridDays.push(t);
+  }
   const rows = Math.ceil(gridDays.length / cols);
-  const Htot = Mx.t + rows*cellH + (rows-1)*vGap + Mx.b;
+  const Htot = Mx.t + headerH + rows*cellH + (rows-1)*vGap + Mx.b;
   svg.attr('width', Wbox).attr('height', Htot);
   svg.selectAll('*').remove();
   const yC = d3.scaleLinear().domain(y.domain()).range([cellH-innerT, 0]);
@@ -1219,7 +1224,7 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
   const gridSet = new Set(gridDays);
   const dayMapFull = new Map();
   const dsMin = startMonday; // inclusive
-  const dsMax = endSunday + dayMs; // exclusive
+  const dsMax = nextLocalMidnight(endSunday); // exclusive
   for (let i=0;i<values.length;i++){
     const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
     const tAbs = time[i]; if (tAbs < dsMin || tAbs >= dsMax) continue;
@@ -1232,39 +1237,60 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
 
   const fmtDay = d3.timeFormat('%-d');
   const fmtWk = d3.timeFormat('%A');
-  const fmtMonthShort = d3.timeFormat('%b');
+  const fmtMonthFull = d3.timeFormat('%B');
   const perHr = 60*60*1000/stepMs; // for 12pm ticks
 
   gridDays.forEach((ds, idx)=>{
     const c = idx % cols, r = Math.floor(idx / cols);
     const gx = Mx.l + c*(cw + hGap);
-    const gy = Mx.t + r*(cellH + vGap);
+    const gy = Mx.t + headerH + r*(cellH + vGap);
     const g = svg.append('g').attr('transform', `translate(${gx},${gy})`);
-    const xC = d3.scaleLinear().domain([0, dayMs]).range([0, cw]);
+    // Use actual local day length (23/24/25h across DST changes)
+    const dayLen = nextLocalMidnight(ds) - ds;
+    const xC = d3.scaleLinear().domain([0, dayLen]).range([0, cw]);
     // panel background
     g.append('rect').attr('width', cw).attr('height', cellH).attr('fill', '#fff');
     // target band background
     const yTop = yC(HIGH())+innerT, yBot = yC(LOW())+innerT;
     g.append('rect').attr('x',0).attr('y',Math.min(yTop,yBot)).attr('width',cw).attr('height',Math.abs(yBot-yTop)).attr('fill','#efefef');
-    // labels
+    // labels in header row above tiles
     const dDate = new Date(ds);
     const isFirstOfMonth = dDate.getDate() === 1;
     if (r === 0) {
+      // Weekday (top line, centered)
       g.append('text')
         .attr('x', cw/2)
-        .attr('y', 10)
+        .attr('y', -headerH + 12)
         .attr('text-anchor','middle')
         .attr('fill','#333')
         .attr('font-size',10)
         .text(fmtWk(dDate));
+      // Day (second line, left aligned)
+      const dayText = g.append('text')
+        .attr('x', 2)
+        .attr('y', -headerH + 22)
+        .attr('fill','#777')
+        .attr('font-size',10);
+      if (isFirstOfMonth){
+        dayText.append('tspan').text(fmtDay(dDate));
+        dayText.append('tspan').text(' ' + fmtMonthFull(dDate)).attr('fill','#555');
+      } else {
+        dayText.text(fmtDay(dDate));
+      }
+    } else {
+      // Subsequent rows: show day label inside the tile (top-left)
+      const dayText2 = g.append('text')
+        .attr('x', 2)
+        .attr('y', 10)
+        .attr('fill','#777')
+        .attr('font-size',10);
+      if (isFirstOfMonth){
+        dayText2.append('tspan').text(fmtDay(dDate));
+        dayText2.append('tspan').text(' ' + fmtMonthFull(dDate)).attr('fill','#555');
+      } else {
+        dayText2.text(fmtDay(dDate));
+      }
     }
-    const dayLabel = isFirstOfMonth ? `${fmtDay(dDate)} ${fmtMonthShort(dDate)}` : fmtDay(dDate);
-    g.append('text')
-      .attr('x', 2)
-      .attr('y', 10)
-      .attr('fill','#777')
-      .attr('font-size',10)
-      .text(dayLabel);
     // thresholds (dynamic)
     g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(LOW())+innerT).attr('y2', yC(LOW())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
     g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(HIGH())+innerT).attr('y2', yC(HIGH())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
@@ -1576,6 +1602,12 @@ function updateTIR(idx0,idx1){
     });
     acc+=b.pct;
   });
+  // If no data at all, draw a neutral grey bar as a placeholder
+  if (n === 0){
+    svg.append("rect").attr("x",Mb.l).attr("y",scaleY(100))
+      .attr("width",60).attr("height",scaleY(0)-scaleY(100))
+      .attr("fill","#e6e6e6");
+  }
 
   // resolve label collisions (top→bottom, then bottom→top)
   const minGap = 14; // px between label baselines
@@ -1851,6 +1883,7 @@ function doUpdateAGP(idx0, idx1){
   const yTicks = baseTicks.concat(cap).filter(v=>v>=yDom[0] && v<=yDom[1]);
   const fmtY = isMmol ? (v=> (Math.round(v*10)/10)) : (v=> Math.round(v));
   svg.append('g').attr('transform',`translate(${M.l},0)`).call(d3.axisLeft(yA).tickValues(yTicks).tickFormat(fmtY));
+  return true;
 }
 
 // ---- Summary metrics for selected period ----
@@ -1898,29 +1931,31 @@ function updateSummary(idx0, idx1){
 
 // ---- Show/hide AGP based on selected window length ----
 function updateAGPVisibility(idx0, idx1){
-  // Count unique days in the current selection
-  const dayMs = 24*60*60*1000;
-  const daysSet = new Set();
-  for (let i=idx0;i<=idx1;i++){
-    const d = new Date(time[i]);
-    const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-    daysSet.add(midnight);
-  }
-  const nDays = daysSet.size || 0;
-  const show = nDays >= 7; // require at least 7 days to render AGP
+  // Decide strictly by selected span (not dependent on sample coverage)
+  const DAY = 24*60*60*1000;
+  const [d0, d1] = x.domain().map(d=>+d);
+  const spanDays = (d1 - d0) / DAY;
+  const showAGP = spanDays > 7; // strictly more than 7 days → show AGP; else show chart
 
-  // Toggle AGP SVG vs. message within fixed-height wrapper
+  // Toggle wrappers directly
+  const agpWrap = document.getElementById('agpSection');
+  const chartWrap = document.getElementById('chartWrap');
+  if (agpWrap) agpWrap.style.display = showAGP ? '' : 'none'; 
+  if (chartWrap) chartWrap.style.display = showAGP ? 'none' : '';
+
+  // Update AGP inner elements visibility when shown
   const svgEl = document.getElementById('agpSvg');
   const msgEl = document.getElementById('agpMsg');
-  if (svgEl) svgEl.style.visibility = show ? 'visible' : 'hidden';
-  if (msgEl) msgEl.style.display = show ? 'none' : 'flex';
+  if (svgEl) svgEl.style.visibility = showAGP ? 'visible' : 'hidden';
+  if (msgEl) msgEl.style.display = showAGP ? 'none' : 'flex';
 
-  // Always show the days count in the footer, even when hidden
+  // Update footer meta (use span days, rounded)
   const meta = document.getElementById('agpMeta');
-  if (meta) meta.textContent = `Days used: ${Math.max(0, nDays-1)}`;
+  if (meta) meta.textContent = `Days used: ${Math.max(0, Math.floor(spanDays))}`;
 
-  return show;
+  return showAGP;
 }
+
 </script>
 </body>
 </html>
