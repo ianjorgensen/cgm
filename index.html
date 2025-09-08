@@ -346,11 +346,12 @@ function drawSeries(){
   const chartWrapEl = document.getElementById('chartWrap');
   const stripsWrapEl = document.getElementById('stripsWrap');
 
-  // If exactly 1 day is selected, always show chart and hide strips
+  // If exactly 1 day is selected, always show chart; keep strips visible; hide AGP section
   const isOneDay = Math.abs((t1v - t0v) - dayMs) < 5; // allow tiny rounding
   if (isOneDay){
     if (chartWrapEl) chartWrapEl.style.display = '';
-    if (stripsWrapEl) stripsWrapEl.style.display = 'none';
+    if (stripsWrapEl) stripsWrapEl.style.display = (globalThis.stripsVisible ? '' : 'none');
+    try { const agp = document.getElementById('agpSection'); if (agp) agp.style.display = 'none'; } catch {}
   } else {
     if (stripsWrapEl) stripsWrapEl.style.display = (globalThis.stripsVisible ? '' : 'none');
     if (chartWrapEl) chartWrapEl.style.display = chartHidden ? 'none' : '';
@@ -1192,17 +1193,6 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
   }
   let days = Array.from(dayMap.keys()).sort((a,b)=>a-b);
   if (!days.length){ svg.selectAll('*').remove(); return; }
-  // For each selected day, gather full-day samples (inside and outside selection)
-  const selectedDays = new Set(days);
-  const dayMapFull = new Map();
-  for (let i=0;i<values.length;i++){
-    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
-    const d = new Date(time[i]);
-    const ds = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-    if (!selectedDays.has(ds)) continue;
-    let arr = dayMapFull.get(ds); if (!arr){ arr=[]; dayMapFull.set(ds, arr); }
-    arr.push({ t: time[i] - ds, v, abs: time[i] });
-  }
   // Build full Monday→Sunday grid covering ALL selected days
   const firstDs = days[0];
   const lastDs = days[days.length-1];
@@ -1215,15 +1205,34 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
   const startMonday = getMonday(firstDs);
   const endSunday = getMonday(lastDs) + 6*dayMs; // end of the week containing last day
   const gridDays = [];
-  for (let t=startMonday; t<=endSunday; t+=dayMs) gridDays.push(t);
+  // Hide future days: only include panels up to today's local midnight
+  const now = new Date();
+  const todayDs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  for (let t=startMonday; t<=endSunday; t+=dayMs){ if (t <= todayDs) gridDays.push(t); }
   const rows = Math.ceil(gridDays.length / cols);
   const Htot = Mx.t + rows*cellH + (rows-1)*vGap + Mx.b;
   svg.attr('width', Wbox).attr('height', Htot);
   svg.selectAll('*').remove();
   const yC = d3.scaleLinear().domain(y.domain()).range([cellH-innerT, 0]);
 
+  // For each grid day, gather all samples from the full dataset (inside and outside selection)
+  const gridSet = new Set(gridDays);
+  const dayMapFull = new Map();
+  const dsMin = startMonday; // inclusive
+  const dsMax = endSunday + dayMs; // exclusive
+  for (let i=0;i<values.length;i++){
+    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
+    const tAbs = time[i]; if (tAbs < dsMin || tAbs >= dsMax) continue;
+    const d = new Date(tAbs);
+    const ds = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    if (!gridSet.has(ds)) continue;
+    let arr = dayMapFull.get(ds); if (!arr){ arr=[]; dayMapFull.set(ds, arr); }
+    arr.push({ t: tAbs - ds, v, abs: tAbs });
+  }
+
   const fmtDay = d3.timeFormat('%-d');
   const fmtWk = d3.timeFormat('%A');
+  const fmtMonthShort = d3.timeFormat('%b');
   const perHr = 60*60*1000/stepMs; // for 12pm ticks
 
   gridDays.forEach((ds, idx)=>{
@@ -1239,10 +1248,23 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
     g.append('rect').attr('x',0).attr('y',Math.min(yTop,yBot)).attr('width',cw).attr('height',Math.abs(yBot-yTop)).attr('fill','#efefef');
     // labels
     const dDate = new Date(ds);
+    const isFirstOfMonth = dDate.getDate() === 1;
     if (r === 0) {
-      g.append('text').attr('x', cw/2).attr('y', 10).attr('text-anchor','middle').attr('fill','#333').attr('font-size',10).text(fmtWk(dDate));
+      g.append('text')
+        .attr('x', cw/2)
+        .attr('y', 10)
+        .attr('text-anchor','middle')
+        .attr('fill','#333')
+        .attr('font-size',10)
+        .text(fmtWk(dDate));
     }
-    g.append('text').attr('x', 2).attr('y', 10).attr('fill','#777').attr('font-size',10).text(fmtDay(dDate));
+    const dayLabel = isFirstOfMonth ? `${fmtDay(dDate)} ${fmtMonthShort(dDate)}` : fmtDay(dDate);
+    g.append('text')
+      .attr('x', 2)
+      .attr('y', 10)
+      .attr('fill','#777')
+      .attr('font-size',10)
+      .text(dayLabel);
     // thresholds (dynamic)
     g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(LOW())+innerT).attr('y2', yC(LOW())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
     g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(HIGH())+innerT).attr('y2', yC(HIGH())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
