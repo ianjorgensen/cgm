@@ -1,0 +1,62 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Demo All Widgets</title>
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 16px; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  #viz { margin-bottom: 12px; }
+  .row { display:flex; gap:16px; align-items:flex-start; }
+  .row > div { flex:1 1 0; min-width:0; }
+</style>
+
+<div class="wrap">
+  <div id="viz"></div>
+  <div class="row" id="rowST" style="margin-top:8px;">
+    <div id="summary"></div>
+    <div id="tirbar"></div>
+  </div>
+  <div id="agp" style="margin-top:12px;"></div>
+  <div id="strips" style="margin-top:12px;"></div>
+</div>
+
+<link rel="stylesheet" href="../dist/lib/style.css" />
+<script src="../dist/lib/cgm-tir.umd.js"></script>
+<script>
+  // Combined demo: TIR calendar + Summary synced to the selection
+  fetch('../../cgm-data/cgm_data.json').then(r=>r.json()).then(data => {
+    // Range presets JSON (for docs; widgets use internal mapping)
+    const PRESETS = { N:'General', T:'Tight', P:'Pregnancy' }
+    const DAY = 24*60*60*1000
+    const t0 = new Date(data.t0).getTime()
+    const tEnd = t0 + data.stepMs * (data.glucose.length - 1)
+    const endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
+    const startDay = Math.max(t0, endDay - 14*DAY + 1) // default: last 14 days
+
+    const calendar = window.createTirCalendar('viz', data, { initialRange: { start: startDay, end: endDay }, preset: 'N' })
+    // Summary stays in sync with calendar selection
+    const summary = window.createCgmSummary('summary', data, { source: calendar, preset: 'N' })
+    const tirbar  = window.createCgmTirBar('tirbar', data, { source: calendar, preset: 'N' })
+    const strips  = window.createCgmStrips('strips', data, { source: calendar, preset: 'N' })
+    const agp     = window.createCgmAgp('agp', data, { source: calendar, preset: 'N' })
+
+    window.addEventListener('keydown', (e)=>{
+      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : ''
+      if (['input','textarea','select'].includes(tag)) return
+      if (e.key.toLowerCase()==='t'){
+        console.log('t')
+        const cur = (window.__preset || 'N')
+        const nxt = (cur==='T') ? 'N' : 'T'
+        window.__preset = nxt
+        calendar.setPreset(nxt); summary.setPreset(nxt); tirbar.setPreset(nxt); strips.setPreset(nxt); agp.setPreset(nxt)
+        e.preventDefault()
+      } else if (e.key.toLowerCase()==='p'){
+        const cur = (window.__preset || 'N')
+        const nxt = (cur==='P') ? 'N' : 'P'
+        window.__preset = nxt
+        calendar.setPreset(nxt); summary.setPreset(nxt); tirbar.setPreset(nxt); strips.setPreset(nxt); agp.setPreset(nxt)
+        e.preventDefault()
+      }
+    })
+  })
+</script>

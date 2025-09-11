@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<title>Daily TIR — Year Rows</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 16px; color:#111; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  #tirYearly { width: 100%; display: block; border: 0; }
+  /* legend removed */
+  .sw { width:14px; height:10px; border-radius:2px; display:inline-block; margin-right:6px; vertical-align:middle; }
+  /* quick buttons */
+  .qbtn, .navbtn { padding: 4px 10px; border:1px solid #bbb; border-radius:6px; background:#f7f7f7; cursor:pointer; }
+  .qbtn:hover, .navbtn:hover { background:#eee; }
+  .qbtn.active { background:#333; color:#fff; border-color:#333; }
+  #quick .qbtn:first-child {  }
+</style>
+
+<body>
+  <div class="container">
+    <h3 style="margin:4px 0 8px; font-weight:600;">Daily Time-in-Range (by Year)</h3>
+    <!-- top controls removed -->
+    <canvas id="tirYearly"></canvas>
+    <div id="controlBar" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:8px 0 6px;">
+      <div id="periodText" style="text-align:left; color:#000; font-size:12px; font-weight:600; min-width:160px; flex:1 1 auto;"></div>
+      <div id="rightControls" style="display:flex; align-items:center; gap:20px; justify-content:flex-end; margin-left:auto;">
+      <div id="navBtns" style="display:flex; gap:8px; align-items:center; justify-content:flex-end; flex:0 0 auto;">
+        <button class="navbtn" data-act="jump-back" title="Jump back by current span">|<</button>
+        <button class="navbtn" data-act="step-back" title="Step back 1 day"><</button>
+        <button class="navbtn" data-act="step-fwd" title="Step forward 1 day">></button>
+        <button class="navbtn" data-act="jump-fwd" title="Jump forward by current span">>|</button>
+      </div>
+      <div id="quick" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+        <button class="qbtn" data-span="1">1 day</button>
+        <button class="qbtn" data-span="3">3 days</button>
+        <button class="qbtn" data-span="7">7 days</button>
+        <button class="qbtn" data-span="14">14 days</button>
+        <button class="qbtn" data-span="30">30 days</button>
+        <button class="qbtn" data-span="90">90 days</button>
+      </div>
+      </div>
+    </div>
+    <!-- legend removed -->
+  </div>
+
+<script type="module">
+import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
+import { units, t0, stepMs, glucose } from './cgm-data/cgm_data.js';
+
+// thresholds
+const isMmol = /mmol/i.test(units);
+const TH = isMmol
+  ? { vlow:3.0, low:3.9, high:10.0, vhigh:13.9 }
+  : { vlow:54,  low:70,  high:180,  vhigh:250 };
+
+// colors (match app palette; slightly soft)
+const DCLR = {
+  vlow: '#e57373',
+  low:  '#ff9e80',
+  targ: '#86c89d',
+  high: '#ffcc80',
+  vhigh:'#ff8a65'
+};
+
+// build time/value arrays
+const tStart = new Date(t0).getTime();
+const time = Float64Array.from({length: glucose.length}, (_,i)=> tStart + i*stepMs);
+const values = Float64Array.from(glucose);
+
+// map per UTC day
+const dayMs = 24*60*60*1000;
+const dayUTC = (t)=>{ const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+const byDay = new Map();
+for (let i=0;i<values.length;i++){
+  const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
+  const ds = dayUTC(time[i]);
+  let r = byDay.get(ds);
+  if (!r) { r = {valid:0, vl:0, l:0, t:0, h:0, vh:0}; byDay.set(ds, r); }
+  r.valid++;
+  if (v < TH.vlow) r.vl++; else if (v < TH.low) r.l++; else if (v <= TH.high) r.t++; else if (v <= TH.vhigh) r.h++; else r.vh++;
+}
+if (!byDay.size){
+  document.getElementById('tirYearly').replaceWith(Object.assign(document.createElement('div'),{textContent:'No data'}));
+}
+
+// domain (first..last day inclusive)
+const firstAll = dayUTC(time[0]);
+const lastAll  = dayUTC(time[time.length-1]);
+const firstYearAll = new Date(firstAll).getUTCFullYear();
+const lastYearAll  = new Date(lastAll).getUTCFullYear();
+
+// current view range (defaults to All)
+function getHashRange(){
+  const qs = new URLSearchParams((location.hash||'').slice(1));
+  const t = qs.get('t');
+  if (t){
+    const [a,b] = t.split(',').map(x=> +x);
+    if (Number.isFinite(a) && Number.isFinite(b) && a<b) return [a,b];
+  }
+  return [firstAll, lastAll];
+}
+let viewStart = getHashRange()[0];
+let viewEnd   = getHashRange()[1];
+const ALLOWED_SPANS = [1,3,7,14,30,90];
+function nearestAllowed(days){
+  let best = ALLOWED_SPANS[0], bd = Infinity;
+  for (const d of ALLOWED_SPANS){ const diff = Math.abs(d - days); if (diff < bd){ bd = diff; best = d; } }
+  return best;
+}
+function spanDays(){ return Math.max(1, Math.floor((viewEnd - viewStart)/dayMs) + 1); }
+function setActiveQuick(days){
+  const want = nearestAllowed(days);
+  document.querySelectorAll('#quick .qbtn').forEach(b=>{
+    const v = +b.getAttribute('data-span');
+    if (v === want) b.classList.add('active'); else b.classList.remove('active');
+  });
+}
+
+function setHashRange(a,b){
+  const qs = new URLSearchParams((location.hash||'').slice(1));
+  qs.set('t', `${Math.round(a)},${Math.round(b)}`);
+  const target = `#${qs.toString()}`;
+  if (location.hash !== target){ history.replaceState(null, '', target); }
+}
+
+// draw
+const cvs = document.getElementById('tirYearly');
+const ctx = cvs.getContext('2d');
+const M = {l: 48, r: 12, t: 8, b: 8};
+const rowH = 54; // height per year row
+function draw(){
+  const DPR = Math.max(1, window.devicePixelRatio || 1);
+  const cssW = Math.max(320, cvs.getBoundingClientRect().width || 900);
+  // Always render full data range; overlay will indicate the selected period
+  const firstT = firstAll, lastT = lastAll;
+  const firstYear = new Date(firstT).getUTCFullYear();
+  const lastYear  = new Date(lastT).getUTCFullYear();
+  const years = d3.range(firstYear, lastYear+1);
+  const cssH = M.t + years.length * rowH + M.b;
+  cvs.style.width = cssW + 'px';
+  cvs.style.height = cssH + 'px';
+  cvs.width = Math.floor(cssW * DPR);
+  cvs.height = Math.floor(cssH * DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,cssW,cssH);
+
+  const plotW = cssW - M.l - M.r;
+
+  // background month grid (optional subtle)
+  ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1;
+  years.forEach((yr, idx)=>{
+    const yTop = M.t + idx*rowH;
+    // month ticks
+    const start = Date.UTC(yr, 0, 1);
+    const end   = Date.UTC(yr+1, 0, 1);
+    for (let m=1;m<12;m++){
+      const t = Date.UTC(yr, m, 1);
+      if (t < firstAll || t > lastAll) continue;
+      const daysInYear = (Date.UTC(yr+1,0,1) - Date.UTC(yr,0,1))/dayMs;
+      const x = M.l + Math.round((t - Date.UTC(yr,0,1)) / dayMs * (plotW / daysInYear));
+      ctx.beginPath(); ctx.moveTo(x, yTop+6); ctx.lineTo(x, yTop + rowH - 6); ctx.stroke();
+    }
+  });
+
+  // draw days stacked per year (full range)
+  years.forEach((yr, idx)=>{
+    const yTop = M.t + idx*rowH;
+    // label
+    ctx.fillStyle = '#444'; ctx.font = '12px system-ui, sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(String(yr), M.l - 8, yTop + rowH/2);
+
+    const startY = Date.UTC(yr,0,1);
+    const endY = Date.UTC(yr+1,0,1) - dayMs; // inclusive last day of year
+    const daysInYear = Math.round((Date.UTC(yr+1,0,1) - Date.UTC(yr,0,1))/dayMs);
+    const xScale = (t)=> M.l + Math.floor(((t - Date.UTC(yr,0,1)) / dayMs) * (plotW / daysInYear));
+    const H = rowH - 10; // usable height inside row
+    const yBase = yTop + 5;
+    for (let t = Math.max(startY, firstAll); t <= Math.min(endY, lastAll); t += dayMs){
+      const x0 = xScale(t);
+      const x1 = xScale(t + dayMs);
+      const w = Math.max(1, x1 - x0);
+      const r = byDay.get(t);
+      if (!r || !r.valid){
+        ctx.fillStyle = '#efefef';
+        ctx.globalAlpha = 1;
+        ctx.fillRect(x0, yBase, w, H);
+        continue;
+      }
+      const samplesPerDay = Math.max(1, Math.round(dayMs/stepMs));
+      const frac = {
+        vl: r.vl / r.valid,
+        l:  r.l  / r.valid,
+        t:  r.t  / r.valid,
+        h:  r.h  / r.valid,
+        vh: r.vh / r.valid,
+      };
+      let yb = yBase + H;
+      const seg = (color, f, alpha)=>{
+        const h = Math.round(f * H);
+        if (h <= 0) return;
+        yb -= h; ctx.fillStyle = color; ctx.globalAlpha = alpha; ctx.fillRect(x0, yb, w, h);
+      };
+      const alphaBase = (r.valid / samplesPerDay) >= 0.5 ? 0.8 : 0.4;
+      const alphaT = (r.valid / samplesPerDay) >= 0.5 ? 0.9 : 0.6;
+      seg(DCLR.vlow, frac.vl, alphaBase);
+      seg(DCLR.low,  frac.l,  alphaBase);
+      seg(DCLR.targ, frac.t,  alphaT);
+      seg(DCLR.high, frac.h,  alphaBase);
+      seg(DCLR.vhigh,frac.vh, alphaBase);
+      ctx.globalAlpha = 1;
+    }
+  });
+
+  // Selection overlay: draw semi-opaque highlight over selected period across all rows
+  try {
+    const sel0 = Math.max(firstAll, Math.min(lastAll, viewStart));
+    const sel1 = Math.max(firstAll, Math.min(lastAll, viewEnd));
+    years.forEach((yr, idx)=>{
+      const yTop = M.t + idx*rowH;
+      const startY = Date.UTC(yr,0,1);
+      const endY = Date.UTC(yr+1,0,1) - 1;
+      const a = Math.max(startY, sel0);
+      const b = Math.min(endY, sel1);
+      if (a > b) return; // no overlap with this row
+      const daysInYear = (Date.UTC(yr+1,0,1) - Date.UTC(yr,0,1))/dayMs;
+      const xScale = (t)=> M.l + Math.floor(((t - Date.UTC(yr,0,1)) / dayMs) * (plotW / daysInYear));
+      const xA = xScale(a);
+      const xB = xScale(b + 1); // inclusive end
+      const yBase = yTop + 5;
+      const H = rowH - 10;
+      // fill
+      ctx.save();
+      ctx.fillStyle = 'rgba(107, 127, 161, 0.28)';
+      ctx.fillRect(xA, yBase, Math.max(1, xB - xA), H);
+      // edges
+      ctx.strokeStyle = '#6b7fa1'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(xA+0.5, yBase+0.5); ctx.lineTo(xA+0.5, yBase+H-0.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xB-0.5, yBase+0.5); ctx.lineTo(xB-0.5, yBase+H-0.5); ctx.stroke();
+      ctx.restore();
+    });
+  } catch {}
+}
+
+// legend removed
+// Controls: period buttons and year selector
+function initControls(){
+  // top controls removed
+  // initialize from hash if present
+  const [hs,he] = getHashRange(); viewStart=hs; viewEnd=he;
+  // bottom quick buttons
+  document.querySelectorAll('#quick .qbtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const days = +btn.getAttribute('data-span');
+      const d = days * dayMs;
+      viewEnd = lastAll;
+      viewStart = Math.max(firstAll, viewEnd - d + 1);
+      setHashRange(viewStart, viewEnd);
+      draw();
+      updatePeriodText();
+      setActiveQuick(days);
+    });
+  });
+  // nav buttons: step/jump
+  const clampWindow = (s,e)=>{
+    const span = Math.max(dayMs, e - s);
+    s = Math.max(firstAll, Math.min(lastAll - span, s));
+    e = Math.min(lastAll, s + span);
+    return [s,e];
+  };
+  const spanDays = ()=> Math.max(1, Math.floor((viewEnd - viewStart)/dayMs) + 1);
+  document.querySelectorAll('#navBtns .navbtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const act = btn.getAttribute('data-act');
+      if (act === 'step-back' || act === 'step-fwd'){
+        const dir = act === 'step-back' ? -1 : 1;
+        let ns = viewStart + dir*dayMs;
+        let ne = viewEnd + dir*dayMs;
+        [ns,ne] = clampWindow(ns, ne);
+        viewStart = ns; viewEnd = ne;
+      } else if (act === 'jump-back' || act === 'jump-fwd'){
+        const dir = act === 'jump-back' ? -1 : 1;
+        const d = spanDays() * dayMs * dir;
+        let ns = viewStart + d;
+        let ne = viewEnd + d;
+        [ns,ne] = clampWindow(ns, ne);
+        viewStart = ns; viewEnd = ne;
+      }
+      setHashRange(viewStart, viewEnd);
+      draw();
+      updatePeriodText();
+      setActiveQuick(spanDays());
+    });
+  });
+}
+
+initControls();
+draw();
+window.addEventListener('resize', draw);
+
+// Period text: e.g., "51 Days: Jun 19 – Aug 9, 2025"
+const fmtMD = d3.timeFormat('%b %e');
+const fmtMDY = d3.timeFormat('%b %e, %Y');
+const fmtDY  = d3.timeFormat('%e, %Y');
+function updatePeriodText(){
+  const el = document.getElementById('periodText'); if (!el) return;
+  const s = new Date(viewStart), e = new Date(viewEnd);
+  // inclusive day count using UTC midnights
+  const utc0 = Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
+  const utc1 = Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
+  const days = Math.max(1, Math.floor((utc1 - utc0)/dayMs) + 1);
+  let periodText;
+  const sameDay = utc0 === utc1;
+  if (sameDay) periodText = fmtMDY(e);
+  else if (s.getFullYear() === e.getFullYear()){
+    if (s.getMonth() === e.getMonth()) periodText = `${fmtMD(s)} – ${fmtDY(e)}`;
+    else periodText = `${fmtMD(s)} – ${fmtMDY(e)}`;
+  } else {
+    periodText = `${fmtMDY(s)} – ${fmtMDY(e)}`;
+  }
+  el.textContent = `${periodText}`;
+}
+
+// keep label in sync after initial draw and whenever hash changes
+updatePeriodText();
+window.addEventListener('hashchange', ()=>{ const [hs,he]=getHashRange(); viewStart=hs; viewEnd=he; updatePeriodText(); draw(); });
+
+// Mouse selection: drag to select a new period (snap to days)
+(function bindCanvasSelection(){
+  const cvs = document.getElementById('tirYearly');
+  if (!cvs) return;
+  let dragging = false;
+  let mode = null; // 'new' | 'move' | 'resize-l' | 'resize-r'
+  let tAnchor = null; // ms at mousedown
+  let startAtDown = null, endAtDown = null; // selection at mousedown
+  const nearPx = 6;
+  const toDayStartUTC = (t)=>{ const d=new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+  function geometry(){
+    const cssW = Math.max(320, cvs.getBoundingClientRect().width || 900);
+    const plotW = cssW - 48 - 12; // M.l + M.r
+    const rowH = 54, top = 8;
+    const years = d3.range(new Date(firstAll).getUTCFullYear(), new Date(lastAll).getUTCFullYear()+1);
+    return { cssW, plotW, rowH, top, years };
+  }
+  function xScaleForYear(yr, plotW){
+    const daysInYear = (Date.UTC(yr+1,0,1) - Date.UTC(yr,0,1)) / dayMs;
+    return (t)=> 48 + Math.floor(((t - Date.UTC(yr,0,1)) / dayMs) * (plotW / daysInYear));
+  }
+  function timeFromEvent(ev){
+    const rect = cvs.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const { cssW, plotW, rowH, top, years } = geometry();
+    const idx = Math.floor((y - top) / rowH);
+    if (idx < 0 || idx >= years.length) return null;
+    const yr = years[idx];
+    const x0 = 48, x1 = cssW - 12;
+    const clampedX = Math.max(x0, Math.min(x1, x));
+    const daysInYear = (Date.UTC(yr+1,0,1) - Date.UTC(yr,0,1)) / (24*60*60*1000);
+    const frac = (clampedX - x0) / (x1 - x0);
+    let t = Date.UTC(yr,0,1) + frac * daysInYear * 24*60*60*1000;
+    // Clamp to overall data
+    t = Math.max(firstAll, Math.min(lastAll, t));
+    return { t, yr, x: clampedX, rowIdx: idx };
+  }
+  cvs.addEventListener('mousedown', (e)=>{
+    const info = timeFromEvent(e); if (!info) return;
+    const { cssW, plotW, rowH, top, years } = geometry();
+    const xScale = xScaleForYear(info.yr, plotW);
+    // selection edges in this row
+    const xA = xScale(Math.max(Date.UTC(info.yr,0,1), viewStart));
+    const xB = xScale(Math.min(Date.UTC(info.yr+1,0,1)-1, viewEnd)) + 1;
+    mode = 'new';
+    if (info.x >= xA - nearPx && info.x <= xA + nearPx) mode = 'resize-l';
+    else if (info.x >= xB - nearPx && info.x <= xB + nearPx) mode = 'resize-r';
+    else if (info.x > xA && info.x < xB) mode = 'move';
+    dragging = true; tAnchor = info.t; startAtDown = viewStart; endAtDown = viewEnd;
+    document.body.style.userSelect = 'none'; cvs.style.cursor = (mode==='move'?'grabbing':(mode==='new'?'crosshair':'col-resize'));
+  });
+  window.addEventListener('mousemove', (e)=>{
+    const info = timeFromEvent(e);
+    if (!info){ if (!dragging){ cvs.style.cursor='crosshair'; } return; }
+    if (!dragging){
+      // hover cursor feedback
+      const { cssW, plotW } = geometry();
+      const xScale = xScaleForYear(info.yr, plotW);
+      const xA = xScale(Math.max(Date.UTC(info.yr,0,1), viewStart));
+      const xB = xScale(Math.min(Date.UTC(info.yr+1,0,1)-1, viewEnd)) + 1;
+      if (info.x >= xA - nearPx && info.x <= xA + nearPx) cvs.style.cursor='col-resize';
+      else if (info.x >= xB - nearPx && info.x <= xB + nearPx) cvs.style.cursor='col-resize';
+      else if (info.x > xA && info.x < xB) cvs.style.cursor='grab';
+      else cvs.style.cursor='crosshair';
+      return;
+    }
+    const t = info.t;
+    const day = 24*60*60*1000;
+    if (mode === 'new'){
+      const a0 = toDayStartUTC(Math.min(tAnchor, t));
+      const b0 = toDayStartUTC(Math.max(tAnchor, t));
+      let draggedDays = Math.max(1, Math.floor((b0 - a0)/day) + 1);
+      const snap = nearestAllowed(draggedDays);
+      // anchor selection to the side where the drag started
+      if (t >= tAnchor){
+        let a = a0;
+        let b = a + snap*day - 1;
+        if (b > lastAll){ b = lastAll; a = Math.max(firstAll, b - snap*day + 1); }
+        viewStart = a; viewEnd = b;
+      } else {
+        let b = b0 + day - 1;
+        let a = b - snap*day + 1;
+        if (a < firstAll){ a = firstAll; b = Math.min(lastAll, a + snap*day - 1); }
+        viewStart = a; viewEnd = b;
+      }
+    } else if (mode === 'resize-l'){
+      let candidateStart = toDayStartUTC(Math.min(t, endAtDown - day + 1));
+      let rawDays = Math.max(1, Math.floor((endAtDown - candidateStart + 1)/day));
+      const snap = nearestAllowed(rawDays);
+      let a = endAtDown - snap*day + 1;
+      a = Math.max(firstAll, Math.min(a, endAtDown - day + 1));
+      viewStart = a; viewEnd = endAtDown;
+    } else if (mode === 'resize-r'){
+      let candidateEnd = toDayStartUTC(t) + day - 1;
+      let rawDays = Math.max(1, Math.floor((candidateEnd - startAtDown + 1)/day));
+      const snap = nearestAllowed(rawDays);
+      let b = startAtDown + snap*day - 1;
+      b = Math.min(lastAll, Math.max(b, startAtDown + day - 1));
+      viewStart = startAtDown; viewEnd = b;
+    } else if (mode === 'move'){
+      const deltaDays = Math.round((toDayStartUTC(t) - toDayStartUTC(tAnchor)) / day);
+      const span = (endAtDown - startAtDown + 1);
+      let ns = startAtDown + deltaDays*day;
+      ns = Math.max(firstAll, Math.min(lastAll - span + 1, ns));
+      viewStart = ns; viewEnd = ns + span - 1;
+    }
+    setHashRange(viewStart, viewEnd);
+    draw();
+    updatePeriodText();
+    setActiveQuick(spanDays());
+  });
+  window.addEventListener('mouseup', ()=>{ if (dragging){ dragging=false; tAnchor=null; mode=null; startAtDown=endAtDown=null; document.body.style.userSelect=''; cvs.style.cursor='crosshair'; } });
+  // cursor
+  cvs.style.cursor = 'crosshair';
+})();
+
+// Keyboard shortcuts:
+// - ArrowLeft / ArrowRight => step by 1 day (same as < / >)
+// - Shift + ArrowLeft / ArrowRight => jump by current span (same as |< / >|)
+(function bindKeyboard(){
+  const clampWindow = (s,e)=>{
+    const span = Math.max(dayMs, e - s);
+    s = Math.max(firstAll, Math.min(lastAll - span, s));
+    e = Math.min(lastAll, s + span);
+    return [s,e];
+  };
+  window.addEventListener('keydown', (e)=>{
+    // ignore when typing in inputs
+    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight'){
+      const dir = (e.key === 'ArrowLeft') ? -1 : 1;
+      if (e.shiftKey){
+        const d = spanDays() * dayMs * dir;
+        let ns = viewStart + d;
+        let ne = viewEnd + d;
+        [ns,ne] = clampWindow(ns, ne);
+        viewStart = ns; viewEnd = ne;
+      } else {
+        let ns = viewStart + dir*dayMs;
+        let ne = viewEnd + dir*dayMs;
+        [ns,ne] = clampWindow(ns, ne);
+        viewStart = ns; viewEnd = ne;
+      }
+      setHashRange(viewStart, viewEnd);
+      draw();
+      updatePeriodText();
+      setActiveQuick(spanDays());
+      e.preventDefault();
+    } else if (/^[1-6]$/.test(e.key)){
+      // Number shortcuts: 1→1d, 2→3d, 3→7d, 4→14d, 5→30d, 6→90d
+      const map = { '1':1, '2':3, '3':7, '4':14, '5':30, '6':90 };
+      const days = map[e.key];
+      viewEnd = lastAll;
+      viewStart = Math.max(firstAll, viewEnd - days*dayMs + 1);
+      setHashRange(viewStart, viewEnd);
+      draw();
+      updatePeriodText();
+      setActiveQuick(days);
+      e.preventDefault();
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Summary Widget Demo</title>
+<style> body { font: 12px system-ui, sans-serif; margin: 16px; } #summary { max-width: 600px; margin: 0 auto; } </style>
+
+<div id="summary"></div>
+<div id="controls" style="max-width:600px;margin:8px auto 0;display:flex;gap:8px;align-items:center;">
+  <button id="shrink" style="padding:6px 10px;">shrink</button>
+  <button id="grow" style="padding:6px 10px;">grow</button>
+  <button id="btn14" style="padding:6px 10px;">Last 14 days</button>
+  <button id="btn90" style="padding:6px 10px;">Last 90 days</button>
+  <span style="margin-left:auto;color:#999;">Loads window ending at most recent day</span>
+</div>
+
+<link rel="stylesheet" href="../dist/lib/style.css" />
+<script src="../dist/lib/cgm-tir.umd.js"></script>
+<script>
+  // Minimal demo: Summary only, using last 14 days from the dataset
+  fetch('../../cgm-data/cgm_data.json').then(r=>r.json()).then(data => {
+    const PRESETS = { N:'General', T:'Tight', P:'Pregnancy' }
+    const t0 = new Date(data.t0).getTime()
+    const tEnd = t0 + data.stepMs * (data.glucose.length - 1)
+    const DAY = 24*60*60*1000
+
+    let endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
+    let startDay = Math.max(t0, endDay - 14*DAY + 1)
+
+    const summary = window.createCgmSummary('summary', data, { initialRange: { start: startDay, end: endDay } })
+
+    const shrink = () => {
+      // shrink by 1 day (min 1 day), keep end fixed
+      if (startDay + DAY <= endDay) {
+        startDay = startDay + DAY
+        summary.setRange({ start: startDay, end: endDay })
+      }
+    }
+     grow = () => {
+      // grow by 1 day to the left, keep end fixed
+      const next = Math.max(t0, startDay - DAY)
+      if (next !== startDay) {
+        startDay = next
+
+        summary.setRange({ start: startDay, end: endDay })
+      }
+    }
+
+    function loadLast(days){
+      startDay = Math.max(t0, endDay - days*DAY + 1)
+      summary.setRange({ start: startDay, end: endDay })
+    }
+
+    document.getElementById('btn14').onclick = () => loadLast(14)
+    document.getElementById('btn90').onclick = () => loadLast(90)
+
+    document.getElementById('shrink').onclick = () => shrink()
+    document.getElementById('grow').onclick = () => grow()
+  })
+</script>

@@ -1,0 +1,2107 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<title>CGM Viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
+<style>
+  :root { --maxw: 1100px; }
+  body { font: 12px system-ui, sans-serif; margin: 0; color:#111; background:#fff; }
+  .top { position: sticky; top: 0; background:#fff; z-index: 10; border-bottom:1px solid #eee; }
+  .top-inner { max-width:var(--maxw); margin:0 auto; width:100%; padding: 8px 12px 8px; display:flex; flex-direction:column; gap:6px; }
+  #periodText { text-align:left; color:#445; font-size:14px; font-weight:600; margin:0; }
+  #tirYearly { width: 100%; display: block; border: 0; }
+  .main { max-width:var(--maxw); margin:0 auto; padding: 8px 12px; }
+  .top.collapsed #tirYearly { display:none; }
+  .header-toggle { position: fixed; right: 12px; top: 12px; background:#f3f3f3; border:1px solid #d0d0d0; color:#666; width:28px; height:28px; border-radius:16px; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 3px rgba(0,0,0,0.08); cursor:pointer; z-index: 20; }
+  .header-toggle:hover { background:#eee; }
+  /* Hide any legacy footer/picker or band legend elements referenced by embedded logic */
+  #dailyTirWrap { display:none !important; }
+  #bandsLegend { display:none !important; }
+</style>
+
+<body>
+  <button id="toggleTop" class="header-toggle" title="Toggle header" aria-label="Toggle header">H</button>
+  <div id="topSection" class="top">
+    <div class="top-inner">
+      <canvas id="tirYearly"></canvas>
+      <div id="periodText"></div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="container layout-old" id="mainContainer">
+      <div id="leftGroup">
+        <div id="summaryCard" style="flex:0.75 1 0; min-width:0;">
+          <div id="summary" style="border:1px solid #fff; border-radius:8px; padding:10px; background:#fff;">
+            <div class="metric"><div><b>Average Glucose</b><div class="muted">Goal: &lt;8.6 mmol/L</div></div><div id="sumAvg"></div></div>
+            <div class="metric"><div><b>Glucose Management Indicator (GMI)</b><div class="muted">Goal: &lt;7%</div></div><div id="sumGmi"></div></div>
+            <div class="metric"><div><b>Glucose Variability (CV)</b><div class="muted">Goal: ≤36%</div></div><div id="sumCv"></div></div>
+            <div id="sumActiveFoot" class="muted" style="font-size:11px; margin-top:6px; padding-left: 8px;"></div>
+          </div>
+        </div>
+        <div id="tirCard" style="flex:1 1 0; min-width:0;">
+          <div id="tir" style="border:1px solid #fff; border-radius:8px; background:#fff;"></div>
+        </div>
+      </div>
+
+      <div id="rightGroup">
+        <div id="agpSection" class="agp-wrap">
+            <svg id="agpSvg"></svg>
+            <div id="agpMsg" class="agp-placeholder" style="display:none;">Not enough data available to compute AGP profile</div>
+        </div>
+      
+        <div id="chartWrap" style="position:relative;">
+            <canvas id="chart" width="1200" height="260"></canvas>
+            <canvas id="hover" style="position:absolute; left:0; top:0; pointer-events:none;"></canvas>
+            <div id="tip" class="tooltip" style="display:none;"></div>
+            <div id="chartMsg" class="agp-placeholder" style="display:none; height:260px;">Too much data to display on daily view</div>
+        </div>
+        <div id="stripsWrap" style="margin:12px auto 0; width:890px;">
+          <svg id="stripsSvg"></svg>
+        </div>
+        <!-- bands legend removed -->
+      </div>
+    </div>
+    <div id="helpOverlay" class="modal-overlay">
+      <div class="modal">
+        <button id="closeHelpX" class="close-x" aria-label="Close">×</button>
+        <h3>Keyboard Shortcuts</h3>
+        <ul>
+          <li><span class="kbd">Drag</span>: pan the main chart</li>
+          <li><span class="kbd">W</span>/<span class="kbd">S</span>: zoom in/out</li>
+          <li><span class="kbd">←</span>/<span class="kbd">→</span>: pan by 25% window</li>
+          <li><span class="kbd">Shift</span> + <span class="kbd">←</span>/<span class="kbd">→</span>: jump a full window</li>
+          <li><span class="kbd">1</span>/<span class="kbd">2</span>/<span class="kbd">3</span>/<span class="kbd">4</span>/<span class="kbd">5</span>/<span class="kbd">6</span>: set window to 1d / 7d / 14d / 1m / 3m / Full (up to 1 year)</li>
+          <li><span class="kbd">L</span>: set URL hash to current view (shareable)</li>
+          <li><span class="kbd">C</span>: hide/show the main chart</li>
+          <li><span class="kbd">X</span>: hide/show AGP</li>
+          <li><span class="kbd">Z</span>: hide/show daily strips</li>
+          <li><span class="kbd">N</span>/<span class="kbd">T</span>/<span class="kbd">P</span>: range presets — General (70–180), Tight (70–140), Pregnancy (63–140)</li>
+          <li><span class="kbd">E</span>: toggle layout (stacked vs. two-column)</li>
+          <li><span class="kbd">F</span>: hide/show the footer</li>
+          <li><span class="kbd">Esc</span>: close dialog or clear URL hash</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+<script type="module">
+import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
+import { units, t0, stepMs, glucose } from './cgm-data/cgm_data.js';
+
+// thresholds (units-aware) used by header TIR render
+const isMmol = /mmol/i.test(units);
+const TH = isMmol
+  ? { vlow:3.0, low:3.9, high:10.0, vhigh:13.9 }
+  : { vlow:54,  low:70,  high:180,  vhigh:250 };
+// colors
+const DCLR = { vlow:'#e57373', low:'#ff9e80', targ:'#86c89d', high:'#ffcc80', vhigh:'#ff8a65' };
+
+// data arrays
+const tStart = new Date(t0).getTime();
+const time = Float64Array.from({length: glucose.length}, (_,i)=> tStart + i*stepMs);
+const values = Float64Array.from(glucose);
+
+// per-day
+const DAY = 24*60*60*1000;
+const dayUTC = (t)=>{ const d=new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+const byDay = new Map();
+for (let i=0;i<values.length;i++){
+  const v=values[i]; if(!(Number.isFinite(v)&&v>=0)) continue;
+  const ds = dayUTC(time[i]);
+  let r = byDay.get(ds); if(!r){ r={valid:0, vl:0, l:0, t:0, h:0, vh:0}; byDay.set(ds,r); }
+  r.valid++; if(v<TH.vlow) r.vl++; else if(v<TH.low) r.l++; else if(v<=TH.high) r.t++; else if(v<=TH.vhigh) r.h++; else r.vh++;
+}
+const firstAll = dayUTC(time[0]);
+const lastAll  = dayUTC(time[time.length-1]);
+
+// selection
+function getHashRange(){
+  const qs=new URLSearchParams((location.hash||'').slice(1));
+  const t=qs.get('t'); if(t){ const [a,b]=t.split(',').map(x=>+x); if(Number.isFinite(a)&&Number.isFinite(b)&&a<b) return [a,b]; }
+  const end=lastAll, start=Math.max(firstAll, end-90*DAY+1); return [start,end];
+}
+let viewStart=getHashRange()[0], viewEnd=getHashRange()[1];
+function setHashRange(a,b){
+  const qs=new URLSearchParams((location.hash||'').slice(1));
+  qs.set('t', `${Math.round(a)},${Math.round(b)}`);
+  const h=`#${qs.toString()}`;
+  if(location.hash!==h){
+    history.replaceState(null,'',h);
+  }
+  // Propagate selection to the bottom app via a synthetic hashchange event
+  try { window.dispatchEvent(new Event('hashchange')); } catch {}
+}
+
+// header canvas render (year rows)
+const cvs=document.getElementById('tirYearly'); const ctx=cvs.getContext('2d');
+const M={l:48,r:12,t:8,b:8}; const rowH=54;
+function drawHeader(){
+  const DPR=Math.max(1,window.devicePixelRatio||1);
+  const cssW=Math.max(320,cvs.getBoundingClientRect().width||900);
+  const firstYear=new Date(firstAll).getUTCFullYear(); const lastYear=new Date(lastAll).getUTCFullYear();
+  const years=d3.range(firstYear,lastYear+1);
+  const cssH=M.t+years.length*rowH+M.b;
+  cvs.style.width=cssW+'px'; cvs.style.height=cssH+'px'; cvs.width=Math.floor(cssW*DPR); cvs.height=Math.floor(cssH*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,cssW,cssH); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cssW,cssH);
+  const plotW=cssW-M.l-M.r;
+  // month guides
+  ctx.strokeStyle='#f0f0f0'; ctx.lineWidth=1;
+  years.forEach((yr,i)=>{ const yTop=M.t+i*rowH; for(let m=1;m<12;m++){ const t=Date.UTC(yr,m,1); if(t<firstAll||t>lastAll) continue; const daysInYear=(Date.UTC(yr+1,0,1)-Date.UTC(yr,0,1))/DAY; const x=M.l+Math.round((t-Date.UTC(yr,0,1))/DAY*(plotW/daysInYear)); ctx.beginPath(); ctx.moveTo(x,yTop+6); ctx.lineTo(x,yTop+rowH-6); ctx.stroke(); }});
+  // stacks
+  years.forEach((yr,i)=>{
+    const yTop=M.t+i*rowH; ctx.fillStyle='#444'; ctx.font='12px system-ui,sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.fillText(String(yr), M.l-8, yTop+rowH/2);
+    const startY=Date.UTC(yr,0,1), endY=Date.UTC(yr+1,0,1)-DAY; const daysInYear=Math.round((Date.UTC(yr+1,0,1)-Date.UTC(yr,0,1))/DAY); const xScale=(t)=> M.l+Math.floor(((t-Date.UTC(yr,0,1))/DAY)*(plotW/daysInYear)); const H=rowH-10; const yBase=yTop+5;
+    for(let t=Math.max(startY,firstAll); t<=Math.min(endY,lastAll); t+=DAY){ const x0=xScale(t), x1=xScale(t+DAY), w=Math.max(1,x1-x0); const r=byDay.get(t); if(!r||!r.valid){ ctx.fillStyle='#efefef'; ctx.fillRect(x0,yBase,w,H); continue; } const samplesPerDay=Math.max(1,Math.round(DAY/stepMs)); const frac={vl:r.vl/r.valid,l:r.l/r.valid,t:r.t/r.valid,h:r.h/r.valid,vh:r.vh/r.valid}; let yb=yBase+H; const seg=(c,f,a)=>{ const h=Math.round(f*H); if(h<=0) return; yb-=h; ctx.fillStyle=c; ctx.globalAlpha=a; ctx.fillRect(x0,yb,w,h); }; const alphaBase=(r.valid/samplesPerDay)>=0.5?0.8:0.4, alphaT=(r.valid/samplesPerDay)>=0.5?0.9:0.6; seg(DCLR.vlow,frac.vl,alphaBase); seg(DCLR.low,frac.l,alphaBase); seg(DCLR.targ,frac.t,alphaT); seg(DCLR.high,frac.h,alphaBase); seg(DCLR.vhigh,frac.vh,alphaBase); ctx.globalAlpha=1; }
+  });
+  // selection overlay
+  years.forEach((yr,i)=>{ const yTop=M.t+i*rowH; const startY=Date.UTC(yr,0,1), endY=Date.UTC(yr+1,0,1)-1; const a=Math.max(startY,viewStart), b=Math.min(endY,viewEnd); if(a>b) return; const daysInYear=(Date.UTC(yr+1,0,1)-Date.UTC(yr,0,1))/DAY; const xScale=(t)=> M.l+Math.floor(((t-Date.UTC(yr,0,1))/DAY)*(plotW/daysInYear)); const xA=xScale(a), xB=xScale(b+1); const yBase=yTop+5, H=rowH-10; ctx.save(); ctx.fillStyle='rgba(107,127,161,0.28)'; ctx.fillRect(xA,yBase,Math.max(1,xB-xA),H); ctx.strokeStyle='#6b7fa1'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(xA+0.5,yBase+0.5); ctx.lineTo(xA+0.5,yBase+H-0.5); ctx.stroke(); ctx.beginPath(); ctx.moveTo(xB-0.5,yBase+0.5); ctx.lineTo(xB-0.5,yBase+H-0.5); ctx.stroke(); ctx.restore(); });
+}
+
+// label
+const fmtMD=d3.timeFormat('%b %e'), fmtMDY=d3.timeFormat('%b %e, %Y'), fmtDY=d3.timeFormat('%e, %Y');
+function updatePeriodText(){ const el=document.getElementById('periodText'); const s=new Date(viewStart), e=new Date(viewEnd); const utc0=dayUTC(s), utc1=dayUTC(e); const days=Math.max(1,Math.floor((utc1-utc0)/DAY)+1); let txt; if(utc0===utc1) txt=fmtMDY(e); else if(s.getFullYear()===e.getFullYear()){ txt=(s.getMonth()===e.getMonth())? `${fmtMD(s)} – ${fmtDY(e)}` : `${fmtMD(s)} – ${fmtMDY(e)}`; } else { txt=`${fmtMDY(s)} – ${fmtMDY(e)}`; } el.textContent = `${days} Days: ${txt}`; }
+
+// mouse selection
+(function bindSelection(){ const cvs=document.getElementById('tirYearly'); const toDay=(t)=>{ const d=new Date(t); return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()); }; let dragging=false, mode=null, tAnchor=null, startAtDown=null, endAtDown=null; const nearPx=6, MAX_SPAN=365*DAY; function geometry(){ const cssW=Math.max(320,cvs.getBoundingClientRect().width||900); const plotW=cssW-M.l-M.r, rowH=54, top=8; const years=d3.range(new Date(firstAll).getUTCFullYear(),new Date(lastAll).getUTCFullYear()+1); return {cssW,plotW,rowH,top,years}; } function xScaleForYear(yr,plotW){ const daysInYear=(Date.UTC(yr+1,0,1)-Date.UTC(yr,0,1))/DAY; return (t)=> M.l+Math.floor(((t-Date.UTC(yr,0,1))/DAY)*(plotW/daysInYear)); } function infoFromEvent(ev){ const rect=cvs.getBoundingClientRect(); const x=ev.clientX-rect.left, y=ev.clientY-rect.top; const {cssW,plotW,rowH,top,years}=geometry(); const idx=Math.floor((y-top)/rowH); if(idx<0||idx>=years.length) return null; const yr=years[idx]; const x0=M.l, x1=cssW-M.r; const cx=Math.max(x0,Math.min(x1,x)); const daysInYear=(Date.UTC(yr+1,0,1)-Date.UTC(yr,0,1))/DAY; const frac=(cx-x0)/(x1-x0); let t=Date.UTC(yr,0,1)+frac*daysInYear*DAY; t=Math.max(firstAll,Math.min(lastAll,t)); return {t,yr,x:cx}; } cvs.addEventListener('mousedown',(e)=>{ const info=infoFromEvent(e); if(!info) return; const {plotW}=geometry(); const xs=xScaleForYear(info.yr,plotW); const xA=xs(Math.max(Date.UTC(info.yr,0,1),viewStart)); const xB=xs(Math.min(Date.UTC(info.yr+1,0,1)-1,viewEnd))+1; mode='new'; if(info.x>=xA-nearPx&&info.x<=xA+nearPx) mode='resize-l'; else if(info.x>=xB-nearPx&&info.x<=xB+nearPx) mode='resize-r'; else if(info.x>xA&&info.x<xB) mode='move'; dragging=true; tAnchor=info.t; startAtDown=viewStart; endAtDown=viewEnd; document.body.style.userSelect='none'; cvs.style.cursor=(mode==='move'?'grabbing':(mode==='new'?'crosshair':'col-resize')); }); window.addEventListener('mousemove',(e)=>{ const info=infoFromEvent(e); if(!info){ if(!dragging) cvs.style.cursor='crosshair'; return; } if(!dragging){ const {plotW}=geometry(); const xs=xScaleForYear(info.yr,plotW); const xA=xs(Math.max(Date.UTC(info.yr,0,1),viewStart)); const xB=xs(Math.min(Date.UTC(info.yr+1,0,1)-1,viewEnd))+1; if(info.x>=xA-nearPx&&info.x<=xA+nearPx) cvs.style.cursor='col-resize'; else if(info.x>=xB-nearPx&&info.x<=xB+nearPx) cvs.style.cursor='col-resize'; else if(info.x>xA&&info.x<xB) cvs.style.cursor='grab'; else cvs.style.cursor='crosshair'; return; } const t=info.t; if(mode==='new'){ let a=toDay(Math.min(tAnchor,t)), b=toDay(Math.max(tAnchor,t))+DAY-1; if(b-a+1>MAX_SPAN){ if(t>=tAnchor){ b=a+MAX_SPAN-1; } else { a=Math.max(firstAll,b-MAX_SPAN+1);} } viewStart=Math.max(firstAll,a); viewEnd=Math.min(lastAll,b); } else if(mode==='resize-l'){ let a=toDay(Math.min(t,endAtDown-DAY+1)); if(endAtDown-a+1>MAX_SPAN) a=endAtDown-MAX_SPAN+1; viewStart=Math.max(firstAll,Math.min(a,endAtDown-DAY+1)); viewEnd=endAtDown; } else if(mode==='resize-r'){ let b=toDay(t)+DAY-1; if(b-startAtDown+1>MAX_SPAN) b=startAtDown+MAX_SPAN-1; b=Math.max(startAtDown+DAY-1,Math.min(lastAll,b)); viewStart=startAtDown; viewEnd=b; } else if(mode==='move'){ const span=endAtDown-startAtDown+1; const delta=Math.round((toDay(t)-toDay(tAnchor))/DAY); let ns=startAtDown+delta*DAY; ns=Math.max(firstAll,Math.min(lastAll-span+1,ns)); viewStart=ns; viewEnd=ns+span-1; } setHashRange(viewStart,viewEnd); drawHeader(); updatePeriodText();  }); window.addEventListener('mouseup',()=>{ if(dragging){ dragging=false; mode=null; document.body.style.userSelect=''; cvs.style.cursor='crosshair'; } }); cvs.style.cursor='crosshair'; })();
+
+function updateIframe(){ const frame=document.getElementById('appFrame'); const h=location.hash||''; const want=`play.html${h}`; if(frame.getAttribute('src')!==want){ frame.setAttribute('src', want); } }
+
+// header toggle button
+document.getElementById('toggleTop').addEventListener('click', ()=>{
+  const top=document.getElementById('topSection'); top.classList.toggle('collapsed'); drawHeader();
+});
+
+// initial
+drawHeader(); updatePeriodText();
+// Ensure bottom app picks up this initial selection
+setHashRange(viewStart, viewEnd);
+window.addEventListener('resize', drawHeader);
+window.addEventListener('hashchange', ()=>{ const [a,b]=getHashRange(); viewStart=a; viewEnd=b; drawHeader(); updatePeriodText(); });
+</script>
+
+<!-- Main app logic (from play.html) -->
+<script type="module">
+import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+import { units, t0, stepMs, glucose } from "./cgm-data/cgm_data.js";
+
+const M={t:20,r:50,b:30,l:50};
+const canvas=document.getElementById("chart");
+const ctx=canvas.getContext("2d",{alpha:false});
+// visibility flags
+globalThis.stripsVisible = globalThis.stripsVisible ?? true; // default visible; toggle with 'Z'
+let chartHidden = true; // decide default after data load; 'C' toggles
+// Avoid flash until we decide
+try { const wrap = document.getElementById('chartWrap'); if (wrap) wrap.style.display = 'none'; } catch {}
+// responsive canvas width so y-axes align with AGP
+function getCanvasWidth(){
+  const agpEl = document.getElementById('agpSection');
+  const aw = agpEl && agpEl.getBoundingClientRect().width;
+  const cw = canvas.getBoundingClientRect().width;
+  return Math.max(300, Math.floor(aw || cw || 1200));
+}
+const dpr = Math.max(1, window.devicePixelRatio || 1);
+// match canvas height to AGP section height for visual alignment
+const agpWrapEl = document.getElementById('agpSection');
+const agpCssH = parseInt((agpWrapEl && getComputedStyle(agpWrapEl).height) || '280', 10) || 280;
+let W = getCanvasWidth(), H = agpCssH;
+function sizeCanvas(){
+  W = getCanvasWidth();
+  H = parseInt((agpWrapEl && getComputedStyle(agpWrapEl).height) || H, 10) || H;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.width = Math.floor(W * dpr);
+  canvas.height = Math.floor(H * dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  try {
+    if (hover){
+      hover.style.width = W + "px";
+      hover.style.height = H + "px";
+      hover.width = Math.floor(W * dpr);
+      hover.height = Math.floor(H * dpr);
+      if (hctx) hctx.setTransform(dpr,0,0,dpr,0,0);
+    }
+  } catch {}
+}
+sizeCanvas();
+const tip=document.getElementById("tip");
+const hover=document.getElementById('hover');
+const hctx = hover ? hover.getContext('2d') : null;
+
+const tStart=new Date(t0).getTime();
+let time=Float64Array.from({length:glucose.length},(_,i)=>tStart+i*stepMs);
+let values=Float64Array.from(glucose);
+
+// Optional URL parameter: #y=YYYY to start data from Jan 1 of that year.
+// Default cutoff: Oct 10, 2020 (UTC) when no 'y' param is provided.
+const qs0 = new URLSearchParams((location.hash||'').slice(1));
+const yParam = parseInt(qs0.get('y') || '', 10);
+// Default to year 2025 if no 'y' provided
+let startYearParam = 2025;
+let cutoffMs = Date.UTC(startYearParam, 0, 1); // Jan 1 of default year
+if (Number.isFinite(yParam) && yParam >= 1970 && yParam <= 2100){
+  startYearParam = yParam;
+  cutoffMs = Date.UTC(yParam, 0, 1);
+}
+globalThis.startYearParam = startYearParam; // used when writing hash
+
+// Apply cutoff by slicing arrays from the first bin >= cutoff
+try {
+  const idxStart = Math.max(0, Math.ceil((cutoffMs - time[0]) / stepMs));
+  if (idxStart > 0 && idxStart < values.length) {
+    time = time.slice(idxStart);
+    values = values.slice(idxStart);
+  }
+} catch {}
+
+// Use the entire dataset without trimming
+
+const tDomain=[time[0],time[time.length-1]];
+const yDomain=d3.extent(Array.from(values).filter(v=>Number.isFinite(v) && v>=0)) || [0,10];
+
+const x=d3.scaleTime().domain(tDomain).range([M.l,W-M.r]);
+const y=d3.scaleLinear().domain(yDomain).nice().range([H-M.b,M.t]);
+
+// Decide default chart visibility based on loaded span unless hash 'c' overrides
+try {
+  const qsInit = new URLSearchParams((location.hash||'').slice(1));
+  const cParam = qsInit.get('c');
+  if (cParam === null){
+    const dayMs = 24*60*60*1000;
+    chartHidden = ((+tDomain[1]) - (+tDomain[0])) > dayMs; // hide unless only 1 day loaded
+    const wrap = document.getElementById('chartWrap');
+    if (wrap) wrap.style.display = chartHidden ? 'none' : '';
+  }
+} catch {}
+
+const isMmol = /mmol/i.test(units);
+const TH = isMmol
+  ? { vlow:3.0, low:3.9, high:10.0, vhigh:13.9, label:"mmol/L" }
+  : { vlow:54,  low:70,  high:180,  vhigh:250,  label:"mg/dL" };
+const toMg = v => isMmol ? v*18 : v;
+
+// Dynamic range presets (low/high) with shortcuts:
+// N: General 70–180, T: Tight 70–140, P: Pregnancy 63–140
+function preset(name){
+  if (name==='T'){ return isMmol ? {id:'T',low:3.9, high:7.8, label:'Tight 3.9–7.8'} : {id:'T',low:70, high:140, label:'Tight 70–140'}; }
+  if (name==='P'){ return isMmol ? {id:'P',low:3.5, high:7.8, label:'Pregnancy 3.5–7.8'} : {id:'P',low:63, high:140, label:'Pregnancy 63–140'}; }
+  return isMmol ? {id:'N',low:3.9, high:10.0, label:'General 3.9–10.0'} : {id:'N',low:70, high:180, label:'General 70–180'};
+}
+globalThis.rangePreset = preset('N');
+function LOW(){ return (globalThis.rangePreset?.low ?? TH.low); }
+function HIGH(){ return (globalThis.rangePreset?.high ?? TH.high); }
+function VLOW(){ return TH.vlow; }
+function VHIGH(){ return TH.vhigh; }
+
+// colors + helpers
+const COLORS = { vlow:"#b30000", low:"#e34a33", targ:"#1a9850", high:"#fdae61", vhigh:"#f46d43" };
+
+// Unified ranges object with thresholds && colors (values in current units)
+const RANGES = {
+  vlow:  { name:'Very Low',  min:-Infinity, max:TH.vlow,  color:COLORS.vlow },
+  low:   { name:'Low',       min:TH.vlow,  max:TH.low,   color:COLORS.low },
+  targ:  { name:'Target',    min:TH.low,   max:TH.high,  color:COLORS.targ },
+  high:  { name:'High',      min:TH.high,  max:TH.vhigh, color:COLORS.high },
+  vhigh: { name:'Very High', min:TH.vhigh, max:Infinity, color:COLORS.vhigh }
+};
+function bandOf(v){
+  if (v < VLOW()) return 'vlow';
+  if (v < LOW())  return 'low';
+  if (v <= HIGH()) return 'targ';
+  if (v <= VHIGH()) return 'high';
+  return 'vhigh';
+}
+function renderLegendInto(id){
+  const box = document.getElementById(id);
+  if (!box) return;
+  box.innerHTML = "";
+  const legend = [
+    {c:COLORS.vlow,  t:`Very Low < ${TH.vlow} ${units}`},
+    {c:COLORS.low,   t:`Low ${isMmol?'3.0–3.9':'54–70'} ${units}`},
+    {c:COLORS.targ,  t:`Target ${isMmol?'3.9–10.0':'70–180'} ${units}`},
+    {c:COLORS.high,  t:`High ${isMmol?'10.0–13.9':'180–250'} ${units}`},
+    {c:COLORS.vhigh, t:`Very High > ${TH.vhigh} ${units}`}
+  ];
+  legend.forEach(d=>{
+    const span = document.createElement("span");
+    const sw = document.createElement("span"); sw.className="sw"; sw.style.background=d.c;
+    span.appendChild(sw); span.appendChild(document.createTextNode(d.t));
+    box.appendChild(span);
+  });
+}
+function renderLegends(){
+  renderLegendInto("bandsLegend");
+  renderLegendInto("agpPctLegend");
+}
+renderLegends();
+
+// ---- helpers: ordinal date formatters ----
+const timeHM = d3.timeFormat("%H:%M");
+const monthShort = d3.timeFormat("%b");
+function ordinal(n){
+  const j=n%10, k=n%100;
+  if(j===1 && k!==11) return `${n}st`;
+  if(j===2 && k!==12) return `${n}nd`;
+  if(j===3 && k!==13) return `${n}rd`;
+  return `${n}th`;
+}
+function fmtAxisDate(d){ return `${monthShort(d)} ${ordinal(d.getDate())}`; }
+function fmtTooltip(d){ return `${monthShort(d)} ${ordinal(d.getDate())} ${d.getFullYear()} - ${timeHM(d)}`; }
+
+// ---- draw series (as colored dots) ----
+function drawSeries(){
+  const pxLeft=M.l,pxRight=W-M.r;
+  const t0v=x.invert(pxLeft).getTime(), t1v=x.invert(pxRight).getTime();
+  const idx0=Math.max(0,Math.floor((t0v-time[0])/stepMs));
+  const idx1=Math.min(values.length-1,Math.ceil((t1v-time[0])/stepMs));
+
+  // Decide AGP vs chart based on number of unique days in selection
+  const showAGP = updateAGPVisibility(idx0, idx1);
+  if (showAGP) {
+    updateTIR(idx0, idx1);
+    const ok = updateAGP(idx0, idx1);
+    if (ok){
+      updateSummary(idx0, idx1);
+      renderDailyTir();
+      renderStrips(idx0, idx1);
+      return;
+    }
+    //const agpWrap = document.getElementById('agpSection'); if (agpWrap) agpWrap.style.display='none';
+    //const chartWrap = document.getElementById('chartWrap'); if (chartWrap) chartWrap.style.display='';
+  }
+  // Ensure strips visibility reflects toggle
+  const stripsWrapEl = document.getElementById('stripsWrap');
+  if (stripsWrapEl) stripsWrapEl.style.display = (globalThis.stripsVisible ? '' : 'none');
+
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
+
+  // no background bands (keep chart clean)
+
+  // threshold lines (light green, subtle)
+  ctx.strokeStyle="#6ea77b"; ctx.lineWidth=1;
+  [LOW(), HIGH()].forEach(val=>{
+    const yy = Math.round(y(val));
+    ctx.beginPath(); ctx.moveTo(M.l, yy); ctx.lineTo(W-M.r, yy); ctx.stroke();
+  });
+
+  // grid: light gray vertical and horizontal lines (drawn behind thresholds)
+  ctx.strokeStyle="#f0f0f0"; ctx.lineWidth=1;
+  for(const t of x.ticks(10)){ const xp=Math.round(x(t)); ctx.beginPath(); ctx.moveTo(xp,M.t); ctx.lineTo(xp,H-M.b); ctx.stroke(); }
+  for(const gy of y.ticks(6)){ const yp=Math.round(y(gy)); ctx.beginPath(); ctx.moveTo(M.l,yp); ctx.lineTo(W-M.r,yp); ctx.stroke(); }
+
+  // line series colored by band with precise boundary splits
+  const colorFor = v => (v < LOW() ? '#d73027' : (v > VHIGH() ? '#f46d43' : (v > HIGH() ? '#fdae61' : '#1a9850')));
+  const gapMs = Math.max(3*stepMs, 45*60*1000);
+  ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  let hasPath=false; let tPrev=null, vPrev=null; let colPrev=null;
+  function endPath(){ if(hasPath){ ctx.stroke(); hasPath=false; } }
+  function beginAt(px,py,color){ ctx.beginPath(); ctx.strokeStyle=color; ctx.moveTo(px,py); hasPath=true; }
+  function between(v0,v1,thr){ return (v0<thr && v1>=thr) || (v0>thr && v1<=thr); }
+  function intersections(t0,v0,t1,v1){
+    const ths = [LOW(), HIGH(), VHIGH()];
+    const res=[]; if (v0===v1) return res;
+    const up = v1>v0;
+    const ordered = up ? ths : ths.slice().reverse();
+    for (const B of ordered){ if ((v0<B && v1>=B) || (v0>B && v1<=B)){
+        const tc = t0 + (B - v0) * (t1 - t0) / (v1 - v0);
+        res.push({t:tc, v:B});
+      } }
+    return res;
+  }
+  for (let i=idx0;i<=idx1;i++){
+    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) { endPath(); tPrev=null; vPrev=null; continue; }
+    const t = time[i];
+    if (tPrev===null || (t - tPrev) > gapMs){
+      endPath();
+      const px=x(new Date(t)), py=y(v); beginAt(px,py,colorFor(v));
+      tPrev=t; vPrev=v; colPrev=colorFor(v); continue;
+    }
+    // compute crossing points && draw segments with proper colors
+    const pts = [{t:tPrev, v:vPrev}].concat(intersections(tPrev,vPrev,t,v)).concat([{t:t, v:v}]);
+    for (let k=1;k<pts.length;k++){
+      const p0=pts[k-1], p1=pts[k];
+      // choose color based on interior midpoint of the subsegment
+      const midVal = (p0.v + p1.v) / 2;
+      const c1 = colorFor(midVal);
+      const px1=x(new Date(p1.t)), py1=y(p1.v);
+      // ensure stroke color for this subsegment
+      if (!hasPath){ beginAt(x(new Date(p0.t)), y(p0.v), c1); }
+      if (ctx.strokeStyle !== c1){ ctx.lineTo(x(new Date(p0.t)), y(p0.v)); endPath(); beginAt(x(new Date(p0.t)), y(p0.v), c1); }
+      ctx.lineTo(px1, py1);
+    }
+    tPrev=t; vPrev=v; colPrev=colorFor(v);
+  }
+  endPath();
+
+  // axes
+  ctx.strokeStyle="#000"; ctx.fillStyle="#000"; ctx.lineWidth=1; ctx.font="10px system-ui";
+  ctx.beginPath();ctx.moveTo(M.l,H-M.b+0.5);ctx.lineTo(W-M.r,H-M.b+0.5);ctx.stroke();
+  // dynamic x-axis tick formatting based on span
+  const [xd0, xd1] = x.domain();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const spanMs = (+xd1) - (+xd0);
+  const oneDay = 24*60*60*1000;
+  let xticks, fmtTick, xOffset;
+  if (spanMs <= oneDay*2) {
+    const every = spanMs <= oneDay ? 2 : 3; // every 2h if <=1d else every 3h
+    xticks = x.ticks(d3.timeHour.every(every));
+    // At local midnight, show the date instead of 00:00
+    fmtTick = (t)=> (t.getHours()===0 && t.getMinutes()===0 ? fmtAxisDate(t) : timeHM(t));
+    xOffset = 0;
+  } else {
+    // Day-level ticks; ensure one tick per calendar day (no duplicates)
+    const start = d3.timeDay.floor(xd0);
+    const end   = d3.timeDay.ceil(xd1);
+    xticks = d3.timeDay.range(start, end, 1);
+    fmtTick = fmtAxisDate; // Apr 27th
+    xOffset = 0;
+  }
+  xticks.forEach(t=>{ const xp=Math.round(x(t));
+    ctx.beginPath();ctx.moveTo(xp,H-M.b);ctx.lineTo(xp,H-M.b+5);ctx.stroke();
+    ctx.fillText(fmtTick(t), xp+xOffset, H-M.b+4);
+  });
+  // left axis tick marks only (no vertical axis line)
+  const yTicks = [VLOW(), LOW(), HIGH(), VHIGH()].filter(tv=>tv>=y.domain()[0] && tv<=y.domain()[1]);
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  yTicks.forEach(tv=>{ const yp=Math.round(y(tv));
+    const label = isMmol ? (Math.round(tv*10)/10).toString() : Math.round(tv).toString();
+    const isTarget = Math.abs(tv - LOW()) < 1e-6 || Math.abs(tv - HIGH()) < 1e-6;
+    // draw small tick for non-targets only
+    if (!isTarget){ ctx.beginPath();ctx.moveTo(M.l-5,yp);ctx.lineTo(M.l,yp);ctx.stroke(); }
+    if (isTarget){
+      const tw = Math.ceil(ctx.measureText(label).width);
+      const padX = 6, h = 14; // roomier pill
+      const xRight = M.l - 12; // leave a gap from the axis/target line
+      const xLeft = Math.round(xRight - (tw + padX*2));
+      const yTop = Math.round(yp - h/2);
+      const r = 3;
+      ctx.save();
+      ctx.fillStyle = '#1a9850';
+      ctx.beginPath();
+      ctx.moveTo(xLeft + r, yTop);
+      ctx.lineTo(xRight - r, yTop);
+      ctx.quadraticCurveTo(xRight, yTop, xRight, yTop + r);
+      ctx.lineTo(xRight, yTop + h - r);
+      ctx.quadraticCurveTo(xRight, yTop + h, xRight - r, yTop + h);
+      ctx.lineTo(xLeft + r, yTop + h);
+      ctx.quadraticCurveTo(xLeft, yTop + h, xLeft, yTop + h - r);
+      ctx.lineTo(xLeft, yTop + r);
+      ctx.quadraticCurveTo(xLeft, yTop, xLeft + r, yTop);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#fff'; // white numbers
+      ctx.fillText(label, xRight - padX - tw, yp);
+      ctx.restore();
+    } else {
+      ctx.fillText(label, M.l-6, yp);
+    }
+  });
+  // additional vlow/vhigh light gray lines
+  ctx.strokeStyle="#cccccc"; ctx.lineWidth=1;
+  [TH.vlow, TH.vhigh].forEach(val=>{ if (val<y.domain()[0]||val>y.domain()[1]) return; const yy=y(val); ctx.beginPath(); ctx.moveTo(M.l,yy); ctx.lineTo(W-M.r,yy); ctx.stroke(); });
+  // restore stroke for next items
+  ctx.strokeStyle="#000"; ctx.lineWidth=1;
+  // removed chart title text for a cleaner look
+
+  updateTIR(idx0, idx1);
+  updateSummary(idx0, idx1);
+  // keep daily TIR overlay in sync with current selection
+  renderDailyTir();
+  renderStrips(idx0, idx1);
+}
+drawSeries();
+
+// keep canvas in sync with container width
+function handleResize(){
+  const prevW = W, prevH = H;
+  sizeCanvas();
+  if (W !== prevW || H !== prevH){ x.range([M.l, W-M.r]); y.range([H-M.b, M.t]); drawSeries(); }
+  renderDailyTir();
+}
+window.addEventListener('resize', handleResize);
+
+// tooltip (nearest sample)
+canvas.addEventListener("mousemove",e=>{
+  const rect=canvas.getBoundingClientRect();
+  const px=e.clientX-rect.left, py=e.clientY-rect.top;
+  if(px<M.l||px>W-M.r||py<M.t||py>H-M.b){tip.style.display="none";return;}
+  const tval=x.invert(px).getTime();
+  const idx=Math.min(values.length-1,Math.max(0,Math.round((tval-time[0])/stepMs)));
+  const v = values[idx];
+  if (!(Number.isFinite(v) && v>=0)){ tip.style.display="none"; return; }
+  tip.style.display="block"; tip.style.left=px+"px"; tip.style.top=py+"px";
+  const td = new Date(time[idx]);
+  tip.textContent=`${fmtTooltip(td)} — ${v.toFixed(1)} ${units}`;
+  
+});
+canvas.addEventListener("mouseleave",()=>{ tip.style.display="none"; try{ if(hctx) hctx.clearRect(0,0,hover.width,hover.height);}catch{} });
+
+// drag pan (sync mini selection)
+let isDown=false,startX,startDom;
+canvas.addEventListener("mousedown",e=>{isDown=true;startX=e.clientX;startDom=x.domain().map(d=>+d);});
+window.addEventListener("mouseup",()=>isDown=false);
+window.addEventListener("mousemove",e=>{
+  if(!isDown)return;
+  const dx=e.clientX-startX;
+  const [d0,d1]=startDom; // numeric ms
+  const scale=(d1-d0)/(W-M.l-M.r);
+  let nd0=d0-dx*scale, nd1=d1-dx*scale;
+  // clamp to data domain
+  const min=+tDomain[0], max=+tDomain[1];
+  if (nd0 < min) { nd1 += (min - nd0); nd0 = min; }
+  if (nd1 > max) { nd0 -= (nd1 - max); nd1 = max; }
+  setDomainViaBrush(nd0, nd1);
+});
+
+// wheel scroll on chart: pan, with Ctrl+wheel for zoom
+canvas.addEventListener('wheel', (e)=>{
+  e.preventDefault();
+  const [d0,d1] = x.domain().map(d=>+d);
+  const span = d1 - d0;
+  if (e.ctrlKey) {
+    // zoom using wheel: negative deltaY zoom in
+    const k = Math.exp(e.deltaY * 0.001);
+    const center = (d0 + d1) / 2;
+    const minSpan = 24*60*60*1000; // 1 day
+    const total = (+tDomain[1]) - (+tDomain[0]);
+    const maxSpan = total; // allow full dataset span
+    const newSpan = Math.min(Math.max(minSpan, span * k), Math.min(maxSpan, total));
+    setDomainViaBrush(center - newSpan/2, center + newSpan/2);
+  } else {
+    // pan proportional to deltaY (trackpad or wheel)
+    const step = span * (e.deltaY * 0.001); // ~0.1 span per 100px scroll
+    let nd0 = d0 + step, nd1 = d1 + step;
+    const min=+tDomain[0], max=+tDomain[1];
+    if (nd0 < min) { nd1 += (min - nd0); nd0 = min; }
+    if (nd1 > max) { nd0 -= (nd1 - max); nd1 = max; }
+    setDomainViaBrush(nd0, nd1);
+  }
+}, { passive:false });
+
+// keyboard zoom W/S && arrow pan
+window.addEventListener("keydown",e=>{
+  const key = e.key;
+  const k = key.toLowerCase();
+
+  // '?' opens shortcuts modal
+  if (key === '?' || (k === '/' && e.shiftKey)){
+    const ov = document.getElementById('helpOverlay');
+    if (ov) ov.style.display = 'flex';
+    e.preventDefault();
+    return;
+  }
+
+  // 'l' sets the URL hash to the current view (shareable link)
+  if (k === 'l' && !e.metaKey && !e.ctrlKey && !e.altKey){
+    const [d0,d1] = x.domain().map(d=>+d);
+    updateHash(d0, d1);
+    e.preventDefault();
+    return;
+  }
+
+  // 'c' toggles main chart visibility
+  if (k === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey){
+    chartHidden = !chartHidden;
+    const wrap = document.getElementById('chartWrap');
+    if (wrap){
+      wrap.style.display = chartHidden ? 'none' : '';
+    }
+    e.preventDefault();
+    return;
+  }
+
+  // 'f' toggles footer visibility
+  if (k === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey){
+    if (typeof globalThis.toggleFooter === 'function') globalThis.toggleFooter();
+    e.preventDefault();
+    return;
+
+}
+  // 'x' toggles AGP visibility
+  if (k === 'x' && !e.metaKey && !e.ctrlKey && !e.altKey){
+    const agp = document.getElementById('agpSection');
+    if (agp){ agp.style.display = (agp.style.display === 'none') ? '' : 'none'; }
+    e.preventDefault();
+    return;
+  }
+
+  // 'z' toggles daily strips visibility
+  if (k === 'z' && !e.metaKey && !e.ctrlKey && !e.altKey){
+    globalThis.stripsVisible = !globalThis.stripsVisible;
+    const strips = document.getElementById('stripsWrap');
+    if (strips){ strips.style.display = globalThis.stripsVisible ? '' : 'none'; }
+    e.preventDefault();
+    return;
+  }
+
+  // Range presets: N (general); T toggles General ↔ Tight; P toggles General ↔ Pregnancy
+  if (!e.metaKey && !e.ctrlKey && !e.altKey){
+    if (k==='n') { globalThis.rangePreset = preset('N'); drawSeries(); e.preventDefault(); return; }
+    if (k==='p') {
+      const cur = (globalThis.rangePreset && globalThis.rangePreset.id) || 'N';
+      globalThis.rangePreset = preset(cur === 'P' ? 'N' : 'P');
+      drawSeries();
+      e.preventDefault();
+      return;
+    }
+    if (k==='t') {
+      const cur = (globalThis.rangePreset && globalThis.rangePreset.id) || 'N';
+      globalThis.rangePreset = preset(cur === 'T' ? 'N' : 'T');
+      drawSeries();
+      e.preventDefault();
+      return;
+    }
+  }
+
+  // Numeric shortcuts for window spans: 1d,7d,14d,1m,Full
+  if (!e.metaKey && !e.ctrlKey && !e.altKey){
+    const DAY = 24*60*60*1000;
+    if (key === '1'){ setSpan(1*DAY); e.preventDefault(); return; }
+    if (key === '2'){ setSpan(7*DAY); e.preventDefault(); return; }
+    if (key === '3'){ setSpan(14*DAY); e.preventDefault(); return; }
+    if (key === '4'){ setSpan(30*DAY); e.preventDefault(); return; }
+    if (key === '5'){ setSpan(90*DAY); e.preventDefault(); return; }
+    if (key === '6'){ setDomainViaBrush(+tDomain[0], +tDomain[1]); e.preventDefault(); return; }
+  }
+
+if (e.altKey && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
+  const [d0, d1] = x.domain().map(d => +d);
+  const span  = d1 - d0;
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const startOfDay = (t) => {
+    const d = new Date(t);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+  const endOfDay = (t) => startOfDay(t) + dayMs;
+  const isClose = (a, b, eps = 1000) => Math.abs(a - b) <= eps; // 1s tolerance
+
+  const min = +tDomain[0], max = +tDomain[1];
+
+  let targetStart;
+
+  if (e.code === 'ArrowRight') {
+    // Snap start so that the window either ends at today's end (EOD - span)
+    // or starts at the beginning of the next day (SOD next), if already at EOD.
+    const eod = endOfDay(d1);
+    if (isClose(d1, eod)) {
+      // already aligned to EOD → move start to start of next day
+      const sodNext = eod; // start-of-day for next day equals today's EOD
+      targetStart = sodNext;
+    } else {
+      // not aligned yet → set start so end aligns to EOD
+      targetStart = eod - span;
+    }
+  } else {
+    // Align start to start-of-day; if already there, use previous day's start
+    let sod = startOfDay(d0);
+    if (isClose(d0, sod)) sod -= dayMs;
+    targetStart = sod;
+  }
+
+  // Clamp to domain bounds
+  targetStart = Math.max(min, Math.min(max - span, targetStart));
+
+  setDomainViaBrush(targetStart, targetStart + span);
+  e.preventDefault();
+  return;
+}
+
+  // Shift + Arrow or '<' '>' keys = jump by full window
+  if (key === '>' || key === '<' || (e.shiftKey && (key === 'ArrowRight' || key === 'ArrowLeft'))) {
+    const [d0,d1] = x.domain().map(d=>+d);
+    const span = d1 - d0;
+    let nd0, nd1;
+    if (key === '>' || key === 'ArrowRight') {
+      // jump right: new start = old end
+      nd0 = d1; nd1 = d1 + span;
+    } else {
+      // jump left: new end = old start
+      nd0 = d0 - span; nd1 = d0;
+    }
+    const min = +tDomain[0], max = +tDomain[1];
+    if (nd0 < min) { nd1 += (min - nd0); nd0 = min; }
+    if (nd1 > max) { nd0 -= (nd1 - max); nd1 = max; }
+    setDomainViaBrush(nd0, nd1);
+    e.preventDefault();
+    return;
+  }
+
+  // left/right arrow = pan (scroll) in time
+  if (key === "ArrowLeft" || key === "ArrowRight") {
+    const [d0,d1] = x.domain().map(d=>+d); // ensure numeric ms
+    const span = d1 - d0;
+    const step = span * 0.25; // pan by 25% of current view
+    const dir = key === "ArrowLeft" ? -1 : 1;
+    let nd0 = d0 + dir * step;
+    let nd1 = d1 + dir * step;
+    // clamp to overall data domain
+    const min = tDomain[0], max = tDomain[1];
+    if (nd0 < min) { nd1 += (min - nd0); nd0 = min; }
+    if (nd1 > max) { nd0 -= (nd1 - max); nd1 = max; }
+    setDomainViaBrush(nd0, nd1);
+    e.preventDefault();
+    return;
+  }
+
+  // W/S keys = zoom in/out
+  if(k!=="w"&&k!=="s") return;
+  const factor = k === "w" ? 0.5 : 2;
+  const [d0,d1] = x.domain().map(d=>+d); // ensure numeric ms
+  const center = (d0 + d1) / 2;
+  const minSpan = 24*60*60*1000; // 1 day
+  const maxSpan = (+tDomain[1]) - (+tDomain[0]); // allow full dataset span
+  const total = (+tDomain[1]) - (+tDomain[0]);
+  const newSpan = Math.min(Math.max(minSpan, (d1 - d0) * factor), Math.min(maxSpan, total));
+  setDomainViaBrush(center - newSpan/2, center + newSpan/2);
+  e.preventDefault();
+});
+// span buttons
+const DAY = 24*60*60*1000;
+function setSpan(spanMs){
+  const [d0,d1] = x.domain().map(d=>+d);
+  const center = (d0 + d1) / 2;
+  let nd0 = center - spanMs/2;
+  let nd1 = center + spanMs/2;
+  const min = +tDomain[0], max = +tDomain[1];
+  if (nd0 < min) { nd1 += (min - nd0); nd0 = min; }
+  if (nd1 > max) { nd0 -= (nd1 - max); nd1 = max; }
+  // ensure non-zero span
+  if (nd1 - nd0 < stepMs) nd1 = Math.min(max, nd0 + stepMs);
+  setDomainViaBrush(nd0, nd1);
+}
+const btn1 = document.getElementById("span1d"); if (btn1) btn1.onclick = () => setSpan(1*DAY);
+const btn7 = document.getElementById("span7d"); if (btn7) btn7.onclick = () => setSpan(7*DAY);
+const btn14 = document.getElementById("span14d"); if (btn14) btn14.onclick = () => setSpan(14*DAY);
+const btn1m = document.getElementById("span1m"); if (btn1m) btn1m.onclick = () => setSpan(30*DAY);
+const btnFull = document.getElementById("spanFull"); if (btnFull) btnFull.onclick = () => setDomainViaBrush(+tDomain[0], +tDomain[1]);
+
+// shortcuts modal open/close
+const openHelp = document.getElementById('openHelp');
+if (openHelp) openHelp.addEventListener('click', (e)=>{
+  e.preventDefault(); const ov=document.getElementById('helpOverlay'); if(ov) ov.style.display='flex';
+});
+document.getElementById('closeHelpX').addEventListener('click', ()=>{
+  const ov=document.getElementById('helpOverlay'); if(ov) ov.style.display='none';
+});
+document.getElementById('helpOverlay').addEventListener('click', (e)=>{
+  if (e.target.id === 'helpOverlay'){ e.currentTarget.style.display='none'; }
+});
+window.addEventListener('keydown', (e)=>{
+  if (e.key === 'Escape'){
+    const ov=document.getElementById('helpOverlay');
+    if (ov && ov.style.display==='flex') { ov.style.display='none'; e.preventDefault(); return; }
+    // Clear the URL hash
+    if (location.hash){ history.replaceState(null, '', location.pathname + location.search); e.preventDefault(); }
+  }
+});
+
+// URL hash helpers for sharing current selection
+function updateHash(d0, d1){
+  const params = new URLSearchParams();
+  params.set('t', `${Math.round(d0)},${Math.round(d1)}`);
+  params.set('p', globalThis.rangePreset?.id || 'N');
+  const agp = document.getElementById('agpSection');
+  const agpVisible = agp ? (agp.style.display !== 'none') : true;
+  params.set('a', agpVisible ? '1' : '0');
+  params.set('s', globalThis.stripsVisible ? '1' : '0');
+  // single layout — no 'l' param saved
+  if (globalThis.startYearParam){ params.set('y', String(globalThis.startYearParam)); }
+  const target = `#${params.toString()}`;
+  if (location.hash !== target){
+    history.replaceState(null, '', target);
+  }
+}
+
+// helper to keep mini brush in sync with x-domain (no automatic hash updates)
+function setDomainViaBrush(d0, d1){
+  // clamp to data bounds && ensure >= 1 step span
+  const min = +tDomain[0], max = +tDomain[1];
+  if (d0 < min) { d1 += (min - d0); d0 = min; }
+  if (d1 > max) { d0 -= (d1 - max); d1 = max; }
+  d0 = Math.max(min, Math.min(max, d0));
+  d1 = Math.max(min, Math.min(max, d1));
+  const minSpan = 24*60*60*1000; // 1 day
+  const maxSpan = (+tDomain[1]) - (+tDomain[0]); // allow full dataset span
+  let span = d1 - d0;
+  if (span < minSpan){
+    const center = (d0 + d1) / 2;
+    d0 = Math.max(min, Math.min(max - minSpan, center - minSpan/2));
+    d1 = Math.min(max, d0 + minSpan);
+    span = d1 - d0;
+  }
+  if (span > maxSpan){
+    const center = (d0 + d1) / 2;
+    d0 = Math.max(min, Math.min(max - maxSpan, center - maxSpan/2));
+    d1 = Math.min(max, d0 + maxSpan);
+  }
+  if (typeof miniX !== 'undefined' && typeof brush !== 'undefined' && typeof brushG !== 'undefined') {
+    brushG.call(brush.move, [miniX(d0), miniX(d1)]);
+  } else {
+    x.domain([d0, d1]);
+    drawSeries();
+  }
+}
+
+// mini overview
+const miniH=120, miniSvg=d3.select("#mini");
+const miniW = (miniSvg.node() && miniSvg.node().getBoundingClientRect().width) || 1200;
+const miniX=d3.scaleTime().domain(tDomain).range([M.l,miniW-M.r]);
+// expose for functions defined earlier that render after mini init
+globalThis.miniX = miniX;
+// Show percent TIR like fullRange: 0..100
+const miniY=d3.scaleLinear().domain([0,100]).range([miniH-20,10]);
+// Build per-day percent TIR across full dataset (same as fullRange)
+const dayMs_m = 24*60*60*1000;
+const byDayMini = new Map();
+for (let i=0;i<values.length;i++){
+  const v=values[i]; if(!(Number.isFinite(v)&&v>=0)) continue;
+  const d=new Date(time[i]); const ds=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();
+  let rec=byDayMini.get(ds); if(!rec){ rec={valid:0,targ:0}; byDayMini.set(ds,rec); }
+  rec.valid++; if(v>=TH.low && v<=TH.high) rec.targ++;
+}
+const samplesPerDay_m = Math.round(dayMs_m/stepMs);
+const daysMini = Array.from(byDayMini.entries()).sort((a,b)=>a[0]-b[0]).map(([t,rec])=>{
+  const active = rec.valid / samplesPerDay_m * 100;
+  const pct = rec.valid ? (rec.targ/rec.valid*100) : NaN;
+  return { t:new Date(t + dayMs_m/2), pct: active>=50 ? pct : NaN };
+});
+// smooth mini line (monotone interpolation)
+const miniLine = d3.line()
+  .defined(d=>Number.isFinite(d.pct))
+  .x(d=>miniX(d.t))
+  .y(d=>miniY(d.pct))
+  .curve(d3.curveMonotoneX);
+miniSvg.append("path")
+  .attr("d", miniLine(daysMini))
+  .attr("fill","none").attr("stroke",COLORS.targ).attr("stroke-width",1.2);
+// y-axis: 0%, 50%, 100%
+miniSvg.append('g')
+  .attr('transform', `translate(${M.l},0)`) 
+  .call(d3.axisLeft(miniY).tickValues([0,50,100]).tickFormat(d=>d+'%'))
+  .selectAll('text').attr('font-size',10);
+let suppressMiniBrush = false;
+const brush=d3.brushX().handleSize(3).extent([[M.l,10],[miniW-M.r,miniH-20]]).on("brush end",(ev)=>{
+  const {selection, sourceEvent} = ev;
+  const dayMs = 24*60*60*1000;
+  if(!selection){
+    // Treat as click-to-day when no drag selection exists
+    if (!sourceEvent) return;
+    const [mx,my] = d3.pointer(sourceEvent, miniSvg.node());
+    if (mx < M.l || mx > (miniW - M.r) || my < 10 || my > (miniH - 20)) return;
+    const t = miniX.invert(mx);
+    const d = new Date(t);
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    setDomainViaBrush(dayStart, dayStart + dayMs);
+    return;
+  }
+  let [a,b]=selection.map(miniX.invert);
+  const min = +tDomain[0], max = +tDomain[1];
+  const minSpan = 24*60*60*1000; // 1 day
+  const maxSpan = 365*24*60*60*1000; // 1 year
+  let d0 = +a, d1 = +b;
+  let span = d1 - d0;
+  if (span < minSpan){
+    const center = (d0 + d1) / 2;
+    d0 = Math.max(min, Math.min(max - minSpan, center - minSpan/2));
+    d1 = Math.min(max, d0 + minSpan);
+    if (!suppressMiniBrush){
+      suppressMiniBrush = true;
+      brushG.call(brush.move, [miniX(d0), miniX(d1)]);
+      suppressMiniBrush = false;
+    }
+    x.domain([d0,d1]); drawSeries();
+    return;
+  }
+  if (span > maxSpan){
+    const center = (d0 + d1) / 2;
+    d0 = Math.max(min, Math.min(max - maxSpan, center - maxSpan/2));
+    d1 = Math.min(max, d0 + maxSpan);
+    if (!suppressMiniBrush){
+      suppressMiniBrush = true;
+      brushG.call(brush.move, [miniX(d0), miniX(d1)]);
+      suppressMiniBrush = false;
+    }
+    x.domain([d0,d1]); drawSeries();
+    return;
+  }
+  if (!suppressMiniBrush){ x.domain([d0,d1]); drawSeries(); }
+});
+const brushG = miniSvg.append("g").call(brush);
+
+// Click on mini to jump to that day (keep brush drag for range selection)
+(function enableMiniClick(){
+  const dayMs = 24*60*60*1000;
+  let down = null;
+  const overlay = brushG.select('.overlay');
+  function onDown(event){ const [mx,my]=d3.pointer(event, miniSvg.node()); down={x:mx,y:my}; }
+  function onUp(event){
+    if(!down){ return; }
+    const [mx,my]=d3.pointer(event, miniSvg.node());
+    const move = Math.abs(mx-down.x)+Math.abs(my-down.y);
+    down=null;
+    // treat as click if minimal movement
+    if (move < 4){
+      if (mx < M.l || mx > (miniW - M.r) || my < 10 || my > (miniH - 20)) return;
+      const t = miniX.invert(mx);
+      const d = new Date(t);
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      // defer to run after brush "end" handlers
+      setTimeout(()=> setDomainViaBrush(dayStart, dayStart + dayMs), 0);
+    }
+  }
+  overlay.on('mousedown', onDown).on('mouseup', onUp);
+})();
+
+// initialize selection from URL hash (t=startMs,endMs) or default to last 14 days
+function applyHashSelection(){
+  const qs = new URLSearchParams((location.hash||'').slice(1));
+  const tParam = qs.get('t');
+  const min = +tDomain[0], max = +tDomain[1];
+  function parseEdge(x){
+    if (!x) return NaN;
+    if (/^\d+$/.test(x)) return +x;
+    const d = Date.parse(x); return Number.isFinite(d) ? d : NaN;
+  }
+  if (tParam){
+    const parts = tParam.split(',');
+    let d0 = parseEdge(parts[0]);
+    let d1 = parseEdge(parts[1]);
+    if (!Number.isFinite(d0) || !Number.isFinite(d1) || d0 >= d1){
+      const DAY = 24*60*60*1000; d0 = Math.max(min, max - 14*DAY); d1 = max;
+    }
+    d0 = Math.max(min, Math.min(max, d0));
+    d1 = Math.max(min, Math.min(max, d1));
+    setDomainViaBrush(d0, d1);
+  } else {
+    const DAY = 24*60*60*1000;
+    const d0 = Math.max(min, max - 14*DAY);
+    const d1 = max;
+    setDomainViaBrush(d0, d1);
+    try { updateHash(d0, d1); } catch {}
+  }
+  const p = qs.get('p'); if (p){ globalThis.rangePreset = preset(p); }
+  const agpV = qs.get('a');
+  const chartV = qs.get('c');
+  const stripsV = qs.get('s');
+  if (stripsV!==null){ globalThis.stripsVisible = stripsV==='1'; const strips = document.getElementById('stripsWrap'); if (strips) strips.style.display = globalThis.stripsVisible ? '' : 'none'; }
+  // ignore legacy chart visibility param (c=)
+  if (agpV!==null){ const agp = document.getElementById('agpSection'); if (agp){ agp.style.display = (agpV==='1') ? '' : 'none'; } }
+  drawSeries();
+}
+
+applyHashSelection();
+window.addEventListener('hashchange', applyHashSelection);
+
+// mini x-axis with adaptive month ticks; show year on January
+function renderMiniAxis(){
+  miniSvg.selectAll('.mini-axis').remove();
+  const start = new Date(tDomain[0]);
+  const end = new Date(tDomain[1]);
+  const months = d3.timeMonths(d3.timeMonth.floor(start), end);
+  const fmtM = d3.timeFormat('%b');
+  const fmtY = d3.timeFormat("'%y");
+  // Determine how many labels fit (~40px per label)
+  const bbox = miniSvg.node().getBoundingClientRect();
+  const avail = Math.max(60, (bbox.width || (W - M.l - M.r)) - (M.l + M.r));
+  const maxTicks = Math.max(2, Math.floor(avail / 40));
+  const step = Math.max(1, Math.ceil(months.length / maxTicks));
+  const tickMonths = months.filter((_,i)=> i % step === 0);
+  const axis = d3.axisBottom(miniX)
+    .tickValues(tickMonths)
+    .tickFormat(d=> d.getMonth()===0 ? `${fmtM(d)} ${fmtY(d)}` : fmtM(d))
+    .tickPadding(6)
+    .tickSizeOuter(0)
+    .tickSizeInner(3);
+  const g = miniSvg.append('g').attr('class','mini-axis').attr('transform', `translate(0,${miniH-8})`).call(axis);
+  g.selectAll('text').attr('font-size',10).attr('fill','#444').attr('text-anchor','middle').attr('dy','0.6em');
+}
+renderMiniAxis();
+
+// Mini hover tooltip (date + value)
+(function addMiniHover(){
+  const tipEl = document.getElementById('tipFull'); if (!tipEl) return;
+  const bisect = d3.bisector(d=>d.t).left;
+  function onMove(event){
+    const [mx,my] = d3.pointer(event, miniSvg.node());
+    const withinX = mx >= M.l && mx <= (miniW - M.r);
+    const withinY = my >= 10 && my <= (miniH - 20);
+    if (!withinX || !withinY){ tipEl.style.display='none'; return; }
+    const tHover = miniX.invert(mx);
+    let i = bisect(daysMini, tHover);
+    i = Math.max(0, Math.min(daysMini.length-1, i));
+    let cand = daysMini[i];
+    if (i>0 && Math.abs(+daysMini[i-1].t - +tHover) < Math.abs(+cand.t - +tHover)) cand = daysMini[i-1];
+    const rect = miniSvg.node().getBoundingClientRect();
+    tipEl.style.display = 'block';
+    tipEl.style.left = (rect.left + mx) + 'px';
+    tipEl.style.top  = (rect.top + my - 10) + 'px';
+    const d = cand.t;
+    const label = `${monthShort(d)} ${ordinal(d.getDate())} ${d.getFullYear()}`;
+    tipEl.textContent = Number.isFinite(cand.pct) ? `${label} — ${cand.pct.toFixed(1)}% TIR` : `${label} — not enough data`;
+  }
+  function onLeave(){ tipEl.style.display='none'; }
+  // attach to brush overlay/selection for reliable events
+  miniSvg.selectAll('.overlay, .selection')
+    .on('mousemove', onMove)
+    .on('mouseleave', onLeave);
+  // also attach to svg root as a fallback
+  miniSvg.on('mousemove', onMove).on('mouseleave', onLeave);
+})();
+
+// (no month axis in the AGP-initial version)
+
+// Full-range removed — mini now shows daily TIR % && handles navigation
+
+// ---- Daily TIR stripes (stacked per-day distribution) ----
+function renderDailyTir(){
+  const cvs = document.getElementById('dailyTir');
+  if (!cvs) return;
+  // Ensure mini scale is ready (defined later in the file)
+  const miniScale = globalThis.miniX;
+  if (!miniScale) return;
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  // Match mini chart's rendered size
+  const miniEl = document.getElementById('mini');
+  const miniBox = miniEl ? miniEl.getBoundingClientRect() : {width:0, height:0};
+  const cssW = Math.max(1, miniBox.width || (cvs.getBoundingClientRect().width || 1200));
+  const cssHFull = Math.max(1, miniBox.height || (parseFloat(miniEl?.getAttribute('height')) || 140));
+  const cssH = Math.round(cssHFull * 2/3); // make Daily TIR 2/3 of mini height
+  // ensure CSS height mirrors target height
+  cvs.style.height = cssH + 'px';
+  // Ensure the shared mini scale matches the Daily TIR width
+  const s = globalThis.miniX; if (s) s.range([M.l, cssW - M.r]);
+  // resize for crisp rendering
+  if (cvs.width !== Math.floor(cssW * dpr)) cvs.width = Math.floor(cssW * dpr);
+  if (cvs.height !== Math.floor(cssH * dpr)) cvs.height = Math.floor(cssH * dpr);
+  const ctx2 = cvs.getContext('2d');
+  ctx2.setTransform(dpr,0,0,dpr,0,0);
+  ctx2.clearRect(0,0,cssW,cssH);
+  // reserve a bottom strip for the X axis labels (outside the plot area)
+  const AXH = 20; // axis label band height
+  const Hplot = Math.max(1, cssH - AXH);
+
+  const dayMs = 24*60*60*1000;
+  const mUTC = (t)=>{ const d=new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+  // aggregate counts per UTC midnight (stable across DST)
+  const byDay = new Map();
+  for (let i=0;i<values.length;i++){
+    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
+    const ds = mUTC(time[i]);
+    let rec = byDay.get(ds);
+    if (!rec) { rec = {valid:0, vl:0, l:0, t:0, h:0, vh:0}; byDay.set(ds, rec); }
+    rec.valid++;
+    if (v < TH.vlow) rec.vl++; else if (v < LOW()) rec.l++; else if (v <= HIGH()) rec.t++; else if (v <= TH.vhigh) rec.h++; else rec.vh++;
+  }
+  if (byDay.size === 0) return;
+
+  // Lay out exactly over the mini's time domain && scale (UTC days)
+  const dom0 = +tDomain[0];
+  const dom1 = +tDomain[1];
+  const d0 = mUTC(dom0);
+  const d1Start = mUTC(dom1);
+  const days = [];
+  for (let t=d0; t<=d1Start; t+=dayMs) days.push(t);
+  const nDays = days.length;
+
+  const H2 = cssH;
+
+  const samplesPerDay = Math.max(1, Math.round(dayMs/stepMs));
+  // Pastel palette for Daily TIR (softer than main COLORS)
+  const DCLR = {
+    vlow: '#e57373',  // deeper soft red
+    low:  '#ff9e80',  // deeper peach
+    targ: '#86c89d',  // darker soft green
+    high: '#ffcc80',  // deeper light orange
+    vhigh:'#ff8a65'   // deeper coral
+  };
+  // Draw columns aligned to mini's x-scale && plot area margins
+  for (let i=0;i<nDays;i++){
+    const ds = days[i];
+    let x0 = Math.floor(miniScale(ds));
+    let x1 = Math.ceil(miniScale(ds + dayMs));
+    // clamp to canvas bounds to ensure last day is visible
+    x0 = Math.max(0, Math.min(cssW, x0));
+    x1 = Math.max(0, Math.min(cssW, x1));
+    const w = Math.max(1, x1 - x0);
+    const r = byDay.get(ds);
+    if (!r || !r.valid){
+      // No data for this day — light background band to preserve alignment
+      ctx2.fillStyle = '#eee';
+      ctx2.globalAlpha = 1;
+      ctx2.fillRect(x0, 0, w, Hplot);
+      continue;
+    }
+    const active = r.valid / samplesPerDay; // 0..1
+    // Slightly stronger opacity overall; boost Target band more for readability
+    const alphaBase = active >= 0.5 ? 0.7 : 0.3;
+    const alphaTarget = active >= 0.5 ? 0.85 : 0.5;
+    const fr = {
+      vl: r.vl / r.valid,
+      l:  r.l  / r.valid,
+      t:  r.t  / r.valid,
+      h:  r.h  / r.valid,
+      vh: r.vh / r.valid,
+    };
+    // stack from bottom up: Very Low at bottom → Very High at top
+    let yb = Hplot;
+    const drawSeg = (color, frac, a)=>{
+      const h = Math.round(frac * Hplot);
+      if (h <= 0) return;
+      yb -= h;
+      ctx2.fillStyle = color;
+      ctx2.globalAlpha = a;
+      ctx2.fillRect(x0, yb, w, h);
+    };
+    drawSeg(DCLR.vlow, fr.vl, alphaBase);   // bottom
+    drawSeg(DCLR.low,  fr.l,  alphaBase);
+    drawSeg(DCLR.targ, fr.t,  alphaTarget);
+    drawSeg(DCLR.high, fr.h, alphaBase);
+    drawSeg(DCLR.vhigh,fr.vh, alphaBase);   // top
+    ctx2.globalAlpha = 1;
+  }
+
+  // expose layout + data for interactions
+  window.__dailyTir = { days, nDays, width: cssW, height: cssH, byDay, dayMs, samplesPerDay, start: d0 };
+
+  // overlay: highlight selected range with blue fill over plot area
+  try {
+    const [sel0, sel1] = x.domain().map(d=>+d);
+    const left = Math.max(0, Math.min(cssW, Math.round(miniScale(sel0))));
+    const right = Math.max(0, Math.min(cssW, Math.round(miniScale(sel1))));
+    ctx2.save();
+    // fill selected area in grayish-blue
+    ctx2.fillStyle = 'rgba(107, 127, 161, 0.30)';
+    if (right > left) ctx2.fillRect(left, 0, right - left, Hplot);
+    // selection edge lines in stronger blue
+    ctx2.strokeStyle = '#6b7fa1';
+    ctx2.lineWidth = 1.5;
+    ctx2.beginPath();
+    ctx2.moveTo(left + 0.5, 0.5); ctx2.lineTo(left + 0.5, Hplot - 0.5);
+    ctx2.moveTo(right - 0.5, 0.5); ctx2.lineTo(right - 0.5, Hplot - 0.5);
+    ctx2.stroke();
+
+    // (selection-day count text removed for cleaner footer)
+    ctx2.restore();
+  } catch {}
+
+  // X-axis months (like mini): adaptive month ticks with year on January (drawn below plot)
+  try {
+    const start = new Date(tDomain[0]);
+    const end = new Date(tDomain[1]);
+    const months = d3.timeMonths(d3.timeMonth.floor(start), end);
+    const fmtM = d3.timeFormat('%b');
+    const fmtY = d3.timeFormat("'%y");
+    const avail = Math.max(60, (cssW - (M.l + M.r)));
+    const maxTicks = Math.max(2, Math.floor(avail / 40));
+    const step = Math.max(1, Math.ceil(months.length / maxTicks));
+    const tickMonths = months.filter((_,i)=> i % step === 0);
+    ctx2.save();
+    ctx2.strokeStyle = '#bbb';
+    ctx2.fillStyle = '#444';
+    ctx2.lineWidth = 1;
+    ctx2.font = '10px system-ui';
+    // baseline
+    const yAxis = Hplot + 0.5;
+    ctx2.beginPath();
+    ctx2.moveTo(M.l, yAxis);
+    ctx2.lineTo(cssW - M.r, yAxis);
+    ctx2.stroke();
+    // ticks && labels
+    tickMonths.forEach(d=>{
+      const xp = Math.round(miniScale(d));
+      if (xp < M.l || xp > cssW - M.r) return;
+      ctx2.beginPath();
+      ctx2.moveTo(xp, yAxis);
+      ctx2.lineTo(xp, yAxis + 5);
+      ctx2.stroke();
+      const label = d.getMonth()===0 ? `${fmtM(d)} ${fmtY(d)}` : fmtM(d);
+      ctx2.fillText(label, xp - 12, yAxis + 14);
+    });
+    ctx2.restore();
+  } catch {}
+
+  // no hover overlay canvas
+}
+
+// initial render
+renderDailyTir();
+
+// ---- Small-multiples: recent days (up to 14) ----
+function renderStrips(idx0 = 0, idx1 = values.length-1){
+  const svg = d3.select('#stripsSvg');
+  if (svg.empty()) return;
+  const wrap = document.getElementById('stripsWrap');
+  const Wbox = Math.max(360, (wrap?.getBoundingClientRect()?.width || W));
+  const Mx = {l: M.l, r: M.r, t: 4, b: 4};
+  const cols = 7, hGap = 0, vGap = 12; // join days within a week; keep week rows separated
+  const cellH = 90, innerT = 16; // space for labels
+  const cw = Math.floor((Wbox - Mx.l - Mx.r - hGap*(cols-1))/cols);
+  const headerH = 24; // top header above tiles for weekday + day labels
+  const dayMs = 24*60*60*1000;
+  // selection window (absolute ms)
+  const sel0 = +x.domain()[0];
+  const sel1 = +x.domain()[1];
+  // collect days touched by current selection (by data)
+  const dayMap = new Map();
+  for (let i=idx0;i<=idx1;i++){
+    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
+    const d = new Date(time[i]);
+    const ds = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    if (!dayMap.has(ds)) dayMap.set(ds, []);
+  }
+  let days = Array.from(dayMap.keys()).sort((a,b)=>a-b);
+  // If there is no data in the selection, fall back to using the selected date span
+  let firstDs, lastDs;
+  if (!days.length){
+    const selStart = new Date(x.domain()[0]);
+    const selEnd   = new Date(x.domain()[1]);
+    firstDs = new Date(selStart.getFullYear(), selStart.getMonth(), selStart.getDate()).getTime();
+    lastDs  = new Date(selEnd.getFullYear(), selEnd.getMonth(), selEnd.getDate()).getTime();
+  } else {
+    firstDs = days[0];
+    lastDs  = days[days.length-1];
+  }
+  // Build full Monday→Sunday grid covering selection (even when no data)
+  const getMonday = (ds)=>{
+    const d = new Date(ds);
+    const day = d.getDay(); // 0..6, Sunday=0
+    const offset = (day + 6) % 7; // Monday=0
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() - offset).getTime();
+  };
+  const startMonday = getMonday(firstDs);
+  const endSunday = getMonday(lastDs) + 6*dayMs; // end of the week containing last day
+  // Helper to advance by 1 local calendar day (handles DST 23/25h days)
+  const nextLocalMidnight = (t)=>{
+    const d = new Date(t); d.setDate(d.getDate()+1); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+  const gridDays = [];
+  // Hide future days: only include panels up to today's local midnight
+  const now = new Date();
+  const todayDs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  for (let t=startMonday; t<=endSunday; t=nextLocalMidnight(t)){
+    if (t <= todayDs) gridDays.push(t);
+  }
+  const rows = Math.ceil(gridDays.length / cols);
+  const Htot = Mx.t + headerH + rows*cellH + (rows-1)*vGap + Mx.b;
+  svg.attr('width', Wbox).attr('height', Htot);
+  svg.selectAll('*').remove();
+  const yC = d3.scaleLinear().domain(y.domain()).range([cellH-innerT, 0]);
+
+  // For each grid day, gather all samples from the full dataset (inside && outside selection)
+  const gridSet = new Set(gridDays);
+  const dayMapFull = new Map();
+  const dsMin = startMonday; // inclusive
+  const dsMax = nextLocalMidnight(endSunday); // exclusive
+  for (let i=0;i<values.length;i++){
+    const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
+    const tAbs = time[i]; if (tAbs < dsMin || tAbs >= dsMax) continue;
+    const d = new Date(tAbs);
+    const ds = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    if (!gridSet.has(ds)) continue;
+    let arr = dayMapFull.get(ds); if (!arr){ arr=[]; dayMapFull.set(ds, arr); }
+    arr.push({ t: tAbs - ds, v, abs: tAbs });
+  }
+
+  const fmtDay = d3.timeFormat('%-d');
+  const fmtWk = d3.timeFormat('%A');
+  const fmtMonthFull = d3.timeFormat('%B');
+  const perHr = 60*60*1000/stepMs; // for 12pm ticks
+
+  gridDays.forEach((ds, idx)=>{
+    const c = idx % cols, r = Math.floor(idx / cols);
+    const gx = Mx.l + c*(cw + hGap);
+    const gy = Mx.t + headerH + r*(cellH + vGap);
+    const g = svg.append('g').attr('transform', `translate(${gx},${gy})`);
+    // Use actual local day length (23/24/25h across DST changes)
+    const dayLen = nextLocalMidnight(ds) - ds;
+    const xC = d3.scaleLinear().domain([0, dayLen]).range([0, cw]);
+    // panel background
+    g.append('rect').attr('width', cw).attr('height', cellH).attr('fill', '#fff');
+    // target band background
+    const yTop = yC(HIGH())+innerT, yBot = yC(LOW())+innerT;
+    g.append('rect').attr('x',0).attr('y',Math.min(yTop,yBot)).attr('width',cw).attr('height',Math.abs(yBot-yTop)).attr('fill','#efefef');
+    // labels in header row above tiles
+    const dDate = new Date(ds);
+    const isFirstOfMonth = dDate.getDate() === 1;
+    const showMonthLabel = isFirstOfMonth || idx === 0; // always show month on the very first tile
+    if (r === 0) {
+      // Weekday (top line, centered)
+      g.append('text')
+        .attr('x', cw/2)
+        .attr('y', -headerH + 12)
+        .attr('text-anchor','middle')
+        .attr('fill','#333')
+        .attr('font-size',10)
+        .text(fmtWk(dDate));
+      // Day (second line, left aligned)
+      const dayText = g.append('text')
+        .attr('x', 2)
+        .attr('y', -headerH + 22)
+        .attr('fill','#777')
+        .attr('font-size',10);
+      if (showMonthLabel){
+        dayText.append('tspan').text(fmtDay(dDate));
+        dayText.append('tspan').text(' ' + fmtMonthFull(dDate)).attr('fill','#555');
+      } else {
+        dayText.text(fmtDay(dDate));
+      }
+    } else {
+      // Subsequent rows: show day label inside the tile (top-left)
+      const dayText2 = g.append('text')
+        .attr('x', 2)
+        .attr('y', 10)
+        .attr('fill','#777')
+        .attr('font-size',10);
+      if (showMonthLabel){
+        dayText2.append('tspan').text(fmtDay(dDate));
+        dayText2.append('tspan').text(' ' + fmtMonthFull(dDate)).attr('fill','#555');
+      } else {
+        dayText2.text(fmtDay(dDate));
+      }
+    }
+    // subtle day divider (thin light gray line) between joined days in a week
+    if (c < cols - 1){
+      g.append('line')
+        .attr('x1', cw).attr('x2', cw)
+        .attr('y1', 14).attr('y2', cellH) // start below day-number text
+        .attr('stroke', '#e5e5e5').attr('stroke-width', 1);
+    }
+    // thresholds (dynamic)
+    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(LOW())+innerT).attr('y2', yC(LOW())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
+    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(HIGH())+innerT).attr('y2', yC(HIGH())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
+    // data for day
+    const arr = (dayMapFull.get(ds) || []).sort((a,b)=>a.t-b.t);
+    if (arr.length){
+      // split into contiguous segments to avoid connecting across gaps
+      const gapMs = Math.max(3*stepMs, 45*60*1000); // at least 45min or 3 samples
+      const segs = [];
+      let cur = [arr[0]];
+      for (let i=1;i<arr.length;i++){
+        if ((arr[i].t - arr[i-1].t) > gapMs){ segs.push(cur); cur=[arr[i]]; } else cur.push(arr[i]);
+      }
+      if (cur.length) segs.push(cur);
+      // Grey line for samples outside the selected window
+      const lineGrey = d3.line()
+        .defined(d=>Number.isFinite(d.v) && (d.abs < sel0 || d.abs > sel1))
+        .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
+        .curve(d3.curveMonotoneX);
+      const areaAboveHigh = d3.area()
+        .defined(d=>Number.isFinite(d.v) && d.v > TH.high && d.abs>=sel0 && d.abs<=sel1)
+        .x(d=>xC(d.t))
+        .y0(yC(HIGH())+innerT)
+        .y1(d=>yC(d.v)+innerT)
+        .curve(d3.curveMonotoneX);
+      const areaBelowLow = d3.area()
+        .defined(d=>Number.isFinite(d.v) && d.v < TH.low && d.abs>=sel0 && d.abs<=sel1)
+        .x(d=>xC(d.t))
+        .y0(d=>yC(d.v)+innerT)
+        .y1(yC(LOW())+innerT)
+        .curve(d3.curveMonotoneX);
+      const lineIn = d3.line()
+        .defined(d=>Number.isFinite(d.v) && d.v>=LOW() && d.v<=HIGH() && d.abs>=sel0 && d.abs<=sel1)
+        .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
+        .curve(d3.curveMonotoneX);
+      const lineBelow = d3.line()
+        .defined(d=>Number.isFinite(d.v) && d.v < LOW() && d.abs>=sel0 && d.abs<=sel1)
+        .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
+        .curve(d3.curveMonotoneX);
+      const lineAbove = d3.line()
+        .defined(d=>Number.isFinite(d.v) && d.v > HIGH() && d.abs>=sel0 && d.abs<=sel1)
+        .x(d=>xC(d.t)).y(d=>yC(d.v)+innerT)
+        .curve(d3.curveMonotoneX);
+      segs.forEach(seg=>{
+        if (seg.length<2) return;
+        // outside selection (grey)
+        g.append('path').attr('d', lineGrey(seg)).attr('fill','none').attr('stroke','#bbb').attr('stroke-width',1.2).attr('opacity',0.9);
+        // fill above target (orange) && below target (red) — more opaque than the lines
+        g.append('path').attr('d', areaAboveHigh(seg)).attr('fill','#fdae61').attr('opacity',0.35);
+        g.append('path').attr('d', areaBelowLow(seg)).attr('fill','#d73027').attr('opacity',0.35);
+        // lines: within target full opacity; above/below slightly subdued for contrast
+        g.append('path').attr('d', lineIn(seg)).attr('fill','none').attr('stroke','#1a9850').attr('stroke-width',1.5);
+        g.append('path').attr('d', lineAbove(seg)).attr('fill','none').attr('stroke','#fdae61').attr('stroke-width',1.5).attr('opacity',0.6);
+        g.append('path').attr('d', lineBelow(seg)).attr('fill','none').attr('stroke','#d73027').attr('stroke-width',1.5).attr('opacity',0.6);
+      });
+    }
+    // 12pm label between rows (for every gap between rows)
+    if (r < rows - 1){
+      const t = 12*perHr*stepMs;
+      const xp = Math.round(xC(t));
+      const yMid = cellH + vGap/2; // midway between this row && the next gap
+      svg.append('text')
+        .attr('x', gx + xp)
+        .attr('y', gy + yMid)
+        .attr('text-anchor','middle')
+        .attr('fill','#555')
+        .attr('font-size',10)
+        .text('12pm');
+    }
+  });
+}
+
+// Footer show/hide toggle
+(function footerToggle(){
+  const btn = document.getElementById('footerToggle');
+  const bar = document.querySelector('.bottombar');
+  if (!btn || !bar) return;
+  let collapsed = false;
+  function apply(){
+    if (collapsed){
+      bar.style.height = '28px'; // show only the period label
+      bar.style.padding = '2px 0';
+      bar.style.borderTop = '1px solid #eee';
+      bar.style.overflow = 'hidden';
+      btn.classList.add('up'); // arrow points up to expand
+      try { const d = document.getElementById('dailyTir'); if (d) d.style.display = 'none'; } catch {}
+    } else {
+      bar.style.height = getComputedStyle(document.documentElement).getPropertyValue('--footer-h') || '160px';
+      bar.style.padding = '4px 0';
+      bar.style.borderTop = '1px solid #eee';
+      bar.style.overflow = 'visible';
+      btn.classList.remove('up');
+      try { const d = document.getElementById('dailyTir'); if (d) d.style.display = 'block'; } catch {}
+      // re-render in case sizes changed while hidden
+      renderDailyTir();
+    }
+  }
+  btn.addEventListener('click', ()=>{ collapsed = !collapsed; apply(); });
+  // start expanded
+  apply();
+  // expose toggle for keyboard shortcut
+  globalThis.toggleFooter = ()=>{ collapsed = !collapsed; apply(); };
+})();
+
+// Interactions: hover tooltip && click-to-zoom on a day
+(function bindDailyTirEvents(){
+  const cvs = document.getElementById('dailyTir');
+  const tipEl = document.getElementById('tipFull');
+  if (!cvs || !tipEl) return;
+  // no hover highlight overlay
+  let isDrag = false, downX = 0, moved = false;
+  let suppressClickNext = false;
+  let dragMode = null; // 'new' | 'resize-l' | 'resize-r' | 'move'
+  let selStart = null; // [d0,d1] at drag start
+  const miniScale = ()=> (globalThis.miniX);
+  const dayMs = 24*60*60*1000;
+  const toUtcMid = (t)=>{ const d=new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+  function pickDay(mx){
+    const st = window.__dailyTir; if (!st) return null;
+    const rect = cvs.getBoundingClientRect();
+    const t = +miniX.invert(mx);
+    const idx = Math.max(0, Math.min(st.nDays-1, Math.floor((t - st.start)/st.dayMs)));
+    const x0 = Math.round(miniX(st.start + idx*st.dayMs));
+    return { idx, x0 };
+  }
+  function onMove(ev){
+    const st = window.__dailyTir; if (!st) return;
+    const rect = cvs.getBoundingClientRect();
+    const mx = ev.clientX - rect.left;
+    const my = ev.clientY - rect.top;
+    if (mx < 0 || my < 0 || mx >= rect.width || my >= rect.height){ tipEl.style.display='none'; return; }
+
+    // dragging selection: update brush domain live
+    if (isDrag && miniScale()){
+      moved = moved || Math.abs(mx - downX) > 3;
+      const scale = miniScale();
+      let [d0, d1] = selStart || x.domain().map(d=>+d);
+      if (dragMode === 'new'){
+        const x0 = Math.min(downX, mx);
+        const x1 = Math.max(downX, mx);
+        const t0 = +scale.invert(x0);
+        const t1 = +scale.invert(x1);
+        d0 = toUtcMid(t0);
+        d1 = toUtcMid(t1);
+        if (d1 <= d0) d1 = d0 + dayMs;
+      } else if (dragMode === 'resize-l'){
+        const t = +scale.invert(mx);
+        d0 = Math.min(toUtcMid(t), d1 - dayMs);
+      } else if (dragMode === 'resize-r'){
+        const t = +scale.invert(mx);
+        d1 = Math.max(toUtcMid(t) + dayMs, d0 + dayMs);
+      } else if (dragMode === 'move'){
+        const tDown = +scale.invert(downX);
+        const tNow = +scale.invert(mx);
+        const delta = tNow - tDown;
+        const span = d1 - d0;
+        let nd0 = d0 + delta;
+        let nd1 = nd0 + span;
+        // snap start to UTC midnight
+        nd0 = toUtcMid(nd0);
+        nd1 = nd0 + span;
+        d0 = nd0; d1 = nd1;
+      }
+      setDomainViaBrush(d0, d1);
+      tipEl.style.display='none';
+      return;
+    }
+    const pick = pickDay(mx); if (!pick){ tipEl.style.display='none'; return; }
+    const ds = st.days[pick.idx];
+    const r = st.byDay.get(ds) || {valid:0, vl:0, l:0, t:0, h:0, vh:0};
+    const d = new Date(ds);
+    const label = `${monthShort(d)} ${ordinal(d.getDate())} ${d.getFullYear()}`;
+    const pct = (n)=> (r.valid? (100*n/r.valid).toFixed(0) : '0');
+    const activePct = r.valid ? (100*r.valid/st.samplesPerDay).toFixed(0) : '0';
+    const targPct = pct(r.t);
+    tipEl.textContent = `${label} — Data:${activePct}% • Target:${targPct}%`;
+    tipEl.style.display='block';
+    const w = Math.max(1, Math.round((globalThis.miniX||((t)=>t))(ds + st.dayMs)) - pick.x0);
+    tipEl.style.left = (rect.left + pick.x0 + Math.min(w, 40)) + 'px';
+    tipEl.style.top  = (rect.top + my - 10) + 'px';
+
+    // no hover highlight drawing
+  }
+  function onLeave(){ if (tipEl) tipEl.style.display='none'; }
+  function onDown(ev){
+    const rect = cvs.getBoundingClientRect();
+    downX = ev.clientX - rect.left;
+    isDrag = true; moved = false;
+    const scale = miniScale();
+    dragMode = 'new'; selStart = x.domain().map(d=>+d);
+    if (scale){
+      const [s0, s1] = x.domain().map(d=>+d);
+      const left = Math.round(scale(s0));
+      const right = Math.round(scale(s1));
+      const near = 6;
+      if (Math.abs(downX - left) <= near) { dragMode = 'resize-l'; }
+      else if (Math.abs(downX - right) <= near) { dragMode = 'resize-r'; }
+      else if (downX > left && downX < right) { dragMode = 'move'; }
+    }
+    document.body.style.userSelect = 'none';
+    ev.preventDefault();
+  }
+  function onUp(ev){
+    if (!isDrag){ return; }
+    isDrag = false; dragMode = null; selStart = null;
+    document.body.style.userSelect = '';
+    if (!moved){
+      // fall back to single-day select at pointer
+      onClick(ev);
+    }
+    else {
+      // suppress the synthetic click event after a drag
+      suppressClickNext = true;
+      setTimeout(()=>{ suppressClickNext = false; }, 0);
+    }
+  }
+  function onClick(ev){
+    if (suppressClickNext){ ev.preventDefault(); return; }
+    const st = window.__dailyTir; if (!st) return;
+    const rect = cvs.getBoundingClientRect();
+    const mx = ev.clientX - rect.left;
+    const pick = pickDay(mx); if (!pick) return;
+    const ds = st.days[pick.idx];
+    setDomainViaBrush(ds, ds + st.dayMs);
+  }
+  cvs.addEventListener('mousemove', onMove);
+  cvs.addEventListener('mouseleave', onLeave);
+  cvs.addEventListener('mousedown', onDown);
+  window.addEventListener('mouseup', onUp);
+  cvs.addEventListener('click', onClick);
+
+  // cursor feedback like mini brush
+  cvs.addEventListener('mousemove', (ev)=>{
+    const scale = miniScale(); if (!scale) return;
+    const rect = cvs.getBoundingClientRect();
+    const mx = ev.clientX - rect.left;
+    const [s0, s1] = x.domain().map(d=>+d);
+    const left = Math.round(scale(s0));
+    const right = Math.round(scale(s1));
+    const near = 6;
+    if (Math.abs(mx - left) <= near || Math.abs(mx - right) <= near){
+      cvs.style.cursor = 'col-resize';
+    } else if (mx > left && mx < right){
+      cvs.style.cursor = isDrag ? 'grabbing' : 'grab';
+    } else {
+      cvs.style.cursor = 'crosshair';
+    }
+  });
+  cvs.addEventListener('mouseleave', ()=>{ cvs.style.cursor = 'default'; });
+  // wheel scroll to pan selected period
+  cvs.addEventListener('wheel', (e)=>{
+    e.preventDefault();
+    const [d0,d1] = x.domain().map(d=>+d);
+    const span = d1 - d0;
+    const step = span * (e.deltaY * 0.001); // similar scale as main chart
+    setDomainViaBrush(d0 + step, d1 + step);
+  }, { passive:false });
+})();
+
+// (prev/next day buttons removed)
+
+// ---- vertical TIR (unchanged) ----
+function updateTIR(idx0,idx1){
+  let n=0; let cVL=0,cL=0,cT=0,cH=0,cVH=0;
+  // tight in-range (TTIR): 3.9–7.8 mmol/L or 70–140 mg/dL
+  const tightHigh = isMmol ? 7.8 : 140;
+  let cTight = 0;
+  for(let i=idx0;i<=idx1;i++){
+    const v=values[i];
+    if (!(Number.isFinite(v) && v>=0)) continue;
+    n++;
+    if(v<TH.vlow)cVL++; else if(v<LOW())cL++;
+    else if(v<=HIGH())cT++; else if(v<=TH.vhigh)cH++; else cVH++;
+    if (v>=TH.low && v<=tightHigh) cTight++;
+  }
+  const pct=x=> n? Math.round(1000*x/n)/10 : 0;
+
+  // Stack from bottom to top: Very Low → Very High
+  const bands=[
+    {name:"Very Low",  pct:pct(cVL), color:COLORS.vlow,  goal:"<1%"},
+    {name:"Low",       pct:pct(cL),  color:COLORS.low,   goal:"<4%"},
+    {name:"Target",    pct:pct(cT),  color:COLORS.targ,  goal:"≥70%"},
+    {name:"High",      pct:pct(cH),  color:COLORS.high,  goal:"<25%"},
+    {name:"Very High", pct:pct(cVH), color:COLORS.vhigh, goal:"<5%"}
+  ];
+
+  const Hb=150;
+  const container = document.getElementById("tir");
+  const Wb = Math.max(320, (container?.getBoundingClientRect()?.width) || 300);
+  const Mb={t:20,r:80,b:30,l:30}; // smaller left margin to align bar left
+  const svg=d3.select("#tir").selectAll("svg").data([0]).join("svg")
+    .attr("width",Wb).attr("height",Hb)
+    .style("overflow","visible");
+
+  svg.selectAll("*").remove();
+
+  const scaleY=d3.scaleLinear().domain([0,100]).range([Hb-Mb.b,Mb.t]);
+
+  // draw stacked bar && collect label targets
+  const labels=[];
+  let acc=0;
+  bands.forEach(b=>{
+    const y0=scaleY(acc), y1=scaleY(acc+b.pct);
+    svg.append("rect").attr("x",Mb.l).attr("y",y1)
+      .attr("width",60).attr("height",y0-y1)
+      .attr("fill",b.color);
+    labels.push({
+      text: `${b.name} ${b.pct}% (goal ${b.goal})`,
+      center: (y0+y1)/2,
+      color: b.color
+    });
+    acc+=b.pct;
+  });
+  // If no data at all, draw a neutral grey bar as a placeholder
+  if (n === 0){
+    svg.append("rect").attr("x",Mb.l).attr("y",scaleY(100))
+      .attr("width",60).attr("height",scaleY(0)-scaleY(100))
+      .attr("fill","#e6e6e6");
+  }
+
+  // Render labels at fixed, evenly-spaced positions similar to the example
+  const pVL = pct(cVL), pL = pct(cL), pT = pct(cT), pH = pct(cH), pVH = pct(cVH);
+  const labelX = Mb.l + 80;
+  const yAt = (percent) => scaleY(percent); // percent 0..100 → y
+  const fmtPct = (v) => { if (v > 0 && v < 1) { return '<1'; } else { return String(Math.round(v)); } };
+
+  function smallLabel(y, text){
+    svg.append('text').attr('x',labelX).attr('y', yAt(y)).attr('dy','0.35em')
+      .attr('fill', '#445').attr('font-size', 11).text(text);
+  }
+  function bigLabel(y, text){
+    svg.append('text').attr('x',labelX).attr('y', yAt(y)).attr('dy','0.35em')
+      .attr('fill', '#111').attr('font-weight', 700).attr('font-size', 14).text(text);
+  }
+
+  // Top → bottom: Very High, High, In Range (big), Low, Very Low
+  smallLabel(6,  `${fmtPct(pVH)} % Very High`);
+  smallLabel(22, `${fmtPct(pH)} % High`);
+  bigLabel(50,   `${fmtPct(pT)} % In Range`);
+  smallLabel(78, `${fmtPct(pL)} % Low`);
+  smallLabel(94, `${fmtPct(pVL)} % Very Low`);
+
+  // Show range used inside the TIR card (small caption)
+  try {
+    const nameFor = (id)=> id==='T' ? 'Tight' : (id==='P' ? 'Pregnancy' : 'General');
+    const id = (globalThis.rangePreset && globalThis.rangePreset.id) || 'N';
+    const name = nameFor(id);
+    const low = LOW(), high = HIGH();
+    const rangeStr = isMmol
+      ? `${(Math.round(low*10)/10).toFixed(1)}–${(Math.round(high*10)/10).toFixed(1)} mmol/L`
+      : `${Math.round(low)}–${Math.round(high)} mg/dL`;
+    const infoId = 'tirRange';
+    let infoEl = document.getElementById(infoId);
+    if (!infoEl && container){
+      infoEl = document.createElement('div');
+      infoEl.id = infoId;
+      infoEl.style.fontSize = '11px';
+      infoEl.style.color = '#777';
+      infoEl.style.margin = '-20px 28px 0px';
+      container.appendChild(infoEl);
+    }
+    if (infoEl) infoEl.textContent = `${name} Range Used: ${rangeStr}`;
+  } catch {}
+
+  // hover TTIR tooltip
+  try {
+    const tipEl = document.getElementById('tipFull');
+    const tightPct = pct(cTight);
+    const rangeLabel = isMmol ? '3.9–7.8 mmol/L' : '70–140 mg/dL';
+    const show = (event)=>{
+      if (!tipEl) return;
+      const rect = svg.node().getBoundingClientRect();
+      const [mx,my] = d3.pointer(event, svg.node());
+      tipEl.style.display='block';
+      tipEl.style.left = (rect.left + mx + 10) + 'px';
+      tipEl.style.top  = (rect.top + my - 10) + 'px';
+      tipEl.textContent = `TTIR: ${tightPct}% (${rangeLabel})`;
+    };
+    const hide = ()=>{ if (tipEl) tipEl.style.display='none'; };
+    svg.on('mousemove', show).on('mouseleave', hide);
+  } catch {}
+
+  // removed TIR header text for cleaner layout
+}
+
+// ---- AGP for selected period ----
+function updateAGP(idx0, idx1){
+  doUpdateAGP(idx0, idx1);
+}
+
+function doUpdateAGP(idx0, idx1){
+  const svg = d3.select('#agpSvg').style('overflow','visible');
+  svg.selectAll('*').remove();
+  const bbox = svg.node().getBoundingClientRect();
+  const W = Math.max(360, bbox.width || 600);
+  const H = Math.max(220, bbox.height || 260);
+  const M = {l:50,r:60,t:20,b:26};
+
+  const dayMs = 24*60*60*1000;
+  const samplesPerDay = Math.max(1, Math.round(dayMs/stepMs));
+  const byMin = Array.from({length: samplesPerDay}, ()=>[]);
+  const daysSet = new Set();
+
+  // collect values by time-of-day bin
+  for (let i=idx0;i<=idx1;i++){
+    const t = time[i];
+    const v = values[i];
+    if (!(Number.isFinite(v) && v>=0)) continue;
+    const d = new Date(t);
+    const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    daysSet.add(midnight);
+    let bin = Math.round((t - midnight) / stepMs);
+    if (bin < 0) bin = 0; else if (bin >= samplesPerDay) bin = samplesPerDay-1;
+    byMin[bin].push(v);
+  }
+
+  // update meta label (display one fewer day)
+  const nDays = daysSet.size || 0;
+  const meta = document.getElementById('agpMeta');
+  if (meta) meta.textContent = nDays ? `Days used: ${Math.max(0, nDays-1)}` : '';
+
+  const q = (arr,p)=>{
+    if (!arr.length) return NaN;
+    const a = Float64Array.from(arr).sort();
+    const pos = (a.length-1)*p; const b = Math.floor(pos); const r = pos-b;
+    return a[b] + (a[Math.min(a.length-1,b+1)]-a[b])*(r||0);
+  };
+  const series = byMin.map((arr,i)=>({
+    t:i,
+    p05:q(arr,0.05), p25:q(arr,0.25), p50:q(arr,0.50), p75:q(arr,0.75), p95:q(arr,0.95)
+  }));
+
+  // if insufficient data, bail
+  const ys = series.flatMap(s=>[s.p05,s.p95]).filter(Number.isFinite);
+  if (!ys.length){
+    svg.append('text').attr('x',M.l).attr('y',H/2).text('Not enough data in selection to compute AGP');
+    return;
+  }
+
+  const x = d3.scaleLinear().domain([0, samplesPerDay-1]).range([M.l, W-M.r]);
+  // AGP Y axis: match main chart but cap the max at 20 mmol/L (or 360 mg/dL)
+  const capMax = isMmol ? 20 : 20*18;
+  const yDom = y.domain().slice();
+  yDom[1] = Math.min(yDom[1], capMax);
+  const yA = d3.scaleLinear().domain(yDom).range([H-M.b, M.t]);
+
+  // remove filled target band (keep only threshold lines below)
+
+  const area = (y0,y1)=>d3.area().defined(d=>Number.isFinite(y0(d))&&Number.isFinite(y1(d)))
+    .x(d=>x(d.t)).y0(y0).y1(y1);
+  const line = d3.line().defined(d=>Number.isFinite(d.p50)).x(d=>x(d.t)).y(d=>yA(d.p50));
+
+  // 5%–95% band split: lighter fills (red below, green in-range, orange above high, scarlet above very-high)
+  (function drawP05P95Split(){
+    const aBelow = d3.area()
+      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p05 < LOW())
+      .x(d=>x(d.t))
+      .y0(d=>yA(Math.min(d.p95, LOW())))
+      .y1(d=>yA(d.p05));
+    const aIn = d3.area()
+      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95>LOW() && d.p05<HIGH())
+      .x(d=>x(d.t))
+      .y0(d=>yA(Math.min(d.p95, HIGH())))
+      .y1(d=>yA(Math.max(d.p05, LOW())));
+    const aAboveMid = d3.area()
+      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95 > HIGH() && d.p05 < TH.vhigh)
+      .x(d=>x(d.t))
+      .y0(d=>yA(Math.min(d.p95, TH.vhigh)))
+      .y1(d=>yA(Math.max(d.p05, HIGH())));
+    const aAboveVh = d3.area()
+      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p05 > TH.vhigh)
+      .x(d=>x(d.t))
+      .y0(d=>yA(d.p95))
+      .y1(d=>yA(d.p05));
+    const aAboveVhStraddle = d3.area()
+      .defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95 > TH.vhigh && d.p05 < TH.vhigh)
+      .x(d=>x(d.t))
+      .y0(d=>yA(d.p95))
+      .y1(d=>yA(TH.vhigh));
+    svg.append('path').attr('d', aBelow(series)).attr('fill','#d73027').attr('opacity',0.18);
+    svg.append('path').attr('d', aIn(series)).attr('fill','#1a9850').attr('opacity',0.12);
+    svg.append('path').attr('d', aAboveMid(series)).attr('fill','#fdae61').attr('opacity',0.18);
+    svg.append('path').attr('d', aAboveVhStraddle(series)).attr('fill','#f46d43').attr('opacity',0.26);
+    svg.append('path').attr('d', aAboveVh(series)).attr('fill','#f46d43').attr('opacity',0.26);
+  })();
+  // IQR (25%–75%) split: green within target, orange above target, red below target; very-high as scarlet
+  (function drawIqrSplit(){
+    const aIn = d3.area()
+      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p75>LOW() && d.p25<HIGH())
+      .x(d=>x(d.t))
+      .y0(d=>yA(Math.min(Math.max(d.p25, LOW()), HIGH())))
+      .y1(d=>yA(Math.max(Math.min(d.p75, HIGH()), LOW())));
+    const aAboveMid = d3.area()
+      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p75>HIGH() && d.p25<TH.vhigh)
+      .x(d=>x(d.t))
+      .y0(d=>yA(Math.min(d.p75, TH.vhigh)))
+      .y1(d=>yA(Math.max(d.p25, HIGH())));
+    const aAboveVh = d3.area()
+      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p25>TH.vhigh)
+      .x(d=>x(d.t))
+      .y0(d=>yA(d.p75))
+      .y1(d=>yA(d.p25));
+    const aAboveVhStraddle = d3.area()
+      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p75>TH.vhigh && d.p25<TH.vhigh)
+      .x(d=>x(d.t))
+      .y0(d=>yA(d.p75))
+      .y1(d=>yA(TH.vhigh));
+    const aBelow = d3.area()
+      .defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p25<LOW())
+      .x(d=>x(d.t))
+      .y0(d=>yA(d.p25))
+      .y1(d=>yA(Math.min(d.p75, LOW())));
+    // draw in order: below (red), in (green), above (orange)
+    svg.append('path').attr('d', aBelow(series)).attr('fill','#d73027').attr('opacity',0.35);
+    svg.append('path').attr('d', aIn(series)).attr('fill','#1a9850').attr('opacity',0.25);
+    svg.append('path').attr('d', aAboveMid(series)).attr('fill','#fdae61').attr('opacity',0.35);
+    svg.append('path').attr('d', aAboveVhStraddle(series)).attr('fill','#f46d43').attr('opacity',0.45);
+    svg.append('path').attr('d', aAboveVh(series)).attr('fill','#f46d43').attr('opacity',0.45);
+  })();
+  // Median (50%) line colored by band with precise splits at boundaries (dynamic thresholds)
+  try {
+    const colorFor = v => (v < LOW() ? '#d73027' : (v > TH.vhigh ? '#f46d43' : (v > HIGH() ? '#fdae61' : '#1a9850')));
+    const line50 = d3.line().x(d=>x(d.t)).y(d=>yA(d.p50));
+    const addSeg = (segs, col, a, b) => {
+      if (!Number.isFinite(a.p50) || !Number.isFinite(b.p50)) return;
+      if (!segs.length || segs[segs.length-1].color !== col) segs.push({color:col, arr:[a]});
+      segs[segs.length-1].arr.push(b);
+    };
+    function between(v0,v1,B){ return (v0<B && v1>=B) || (v0>B && v1<=B); }
+    function inter(t0,v0,t1,v1,B){ const t = t0 + (B - v0) * (t1 - t0) / (v1 - v0); return {t, p50:B}; }
+    let segs=[]; let prev=null;
+    for (let i=0;i<series.length;i++){
+      const cur = series[i];
+      if (!Number.isFinite(cur.p50)) { prev=null; continue; }
+      if (!prev){ prev=cur; continue; }
+      const t0=prev.t, v0=prev.p50, t1=cur.t, v1=cur.p50;
+      // generate boundary points in order of crossing
+      let pts=[{t:t0,p50:v0}], vprev=v0, tprev=t0;
+      const ths = [LOW(), HIGH(), TH.vhigh];
+      const ascend = v1>v0; const ordered = ascend? ths : ths.slice().reverse();
+      ordered.forEach(B=>{ if (between(vprev, v1, B)){ const p=inter(tprev, vprev, t1, v1, B); pts.push(p); vprev=p.p50; tprev=p.t; } });
+      pts.push({t:t1,p50:v1});
+      for (let k=1;k<pts.length;k++){
+        const a=pts[k-1], b=pts[k];
+        const mid = (a.p50 + b.p50)/2 + (b.p50===a.p50? (b.t>a.t?1e-6:-1e-6):0);
+        const col = colorFor(mid);
+        addSeg(segs, col, a, b);
+      }
+      prev=cur;
+    }
+    segs.forEach(seg=>{
+      if (seg.arr.length<2) return;
+      svg.append('path').attr('d', line50(seg.arr))
+        .attr('stroke', seg.color).attr('fill','none').attr('stroke-width',2);
+    });
+  } catch {}
+  // Percentile labels at right edge: 5%,25%,50%,75%,95%
+  try {
+    const lastOf = key => {
+      for (let i=series.length-1;i>=0;i--){ const v=series[i][key]; if (Number.isFinite(v)) return {t:series[i].t, v}; }
+      return null;
+    };
+    const pad = 41; // extra padding to the right of the line end to avoid overlap (~1ch + 5px)
+    const place = (pct, p)=>{
+      if (!p) return;
+      const xP = Math.min(W - M.r - 2, x(p.t) + pad);
+      const yP = yA(p.v);
+      svg.append('text')
+        .attr('x', xP+ 5)
+        .attr('y', yP)
+        .attr('dy', '0.35em')
+        .attr('text-anchor', 'start')
+        .attr('fill', '#000')
+        .attr('font-size', 11)
+        .attr('font-weight', pct===50 ? 700 : 400)
+        .text(`${pct}%`);
+    };
+    place(5,  lastOf('p05'));
+    place(25, lastOf('p25'));
+    place(50, lastOf('p50'));
+    place(75, lastOf('p75'));
+    place(95, lastOf('p95'));
+  } catch {}
+
+  // target lines (light green) + vlow/vhigh (light gray)
+  svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(HIGH())).attr('y2',yA(HIGH()))
+    .attr('stroke','#6ea77b').attr('stroke-width',1);
+  svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(LOW())).attr('y2',yA(LOW()))
+    .attr('stroke','#6ea77b').attr('stroke-width',1);
+  svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(TH.vlow)).attr('y2',yA(TH.vlow))
+    .attr('stroke','#cccccc').attr('stroke-width',1);
+  svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(TH.vhigh)).attr('y2',yA(TH.vhigh))
+    .attr('stroke','#cccccc').attr('stroke-width',1);
+
+  // x axis: time-of-day labels every 3 hours
+  const perHr = 60*60*1000/stepMs;
+  // drop the final 24h tick to avoid the last tick line at the right edge
+  const ticks = d3.range(0, 24, 3).map(h=>Math.round(h*perHr));
+  const fmtHr = h => (h===0||h===24) ? '12am' : (h<12?`${h}am`:(h===12?'12pm':`${h-12}pm`));
+  const axis = d3.axisBottom(x)
+    .tickValues(ticks)
+    .tickFormat(t=>fmtHr(Math.round(t/perHr)))
+    .tickSizeOuter(0);
+  svg.append('g').attr('transform',`translate(0,${H-M.b})`).call(axis);
+  // Y axis: dynamic ticks at vlow/low/high/vhigh (+ cap)
+  const baseTicks = [VLOW(), LOW(), HIGH(), VHIGH()];
+  const cap = isMmol ? 20 : 360;
+  const yTicks = baseTicks.concat(cap).filter(v=>v>=yDom[0] && v<=yDom[1]);
+  const fmtY = isMmol ? (v=> (Math.round(v*10)/10)) : (v=> Math.round(v));
+  const yAxisG = svg.append('g')
+    .attr('transform',`translate(${M.l},0)`) 
+    .call(d3.axisLeft(yA).tickValues(yTicks).tickFormat(fmtY))
+    .call(g=> g.select('.domain').remove());
+  // decorate LOW/HIGH tick labels with green pill backgrounds + white text
+  try {
+    const near = (a,b)=>Math.abs(a-b) < 1e-6;
+    yAxisG.selectAll('.tick').each(function(d){
+      if (!(near(d, LOW()) || near(d, HIGH()))) return;
+      const t = d3.select(this).select('text');
+      const n = t.node(); if (!n) return;
+      // nudge text a few px left to create a gap from the axis
+      t.attr('dx', '-4');
+      const bb = n.getBBox();
+      const padX = 6, padY = 2, r = 3;
+      d3.select(this).insert('rect', 'text')
+        .attr('x', bb.x - padX)
+        .attr('y', bb.y - padY)
+        .attr('width', bb.width + 2*padX)
+        .attr('height', bb.height + 2*padY)
+        .attr('rx', r).attr('ry', r)
+        .attr('fill', '#1a9850');
+      t.attr('fill', '#fff').attr('font-weight', 700);
+    });
+  } catch {}
+  return true;
+}
+
+// ---- Summary metrics for selected period ----
+function updateSummary(idx0, idx1){
+  const fmtMD = d3.timeFormat("%b %e");
+  const fmtMDY = d3.timeFormat("%b %e, %Y");
+  const fmtDY  = d3.timeFormat("%e, %Y");
+  const start = new Date(time[idx0]);
+  const end = new Date(time[idx1]);
+  const sameDay = start.getFullYear()===end.getFullYear() && start.getMonth()===end.getMonth() && start.getDate()===end.getDate();
+  let periodText;
+  if (sameDay) {
+    periodText = `${fmtMDY(end)}`;
+  } else if (start.getFullYear()===end.getFullYear()) {
+    if (start.getMonth()===end.getMonth()) {
+      // Same month and year: e.g., Aug 27 – 10, 2025
+      periodText = `${fmtMD(start)} – ${fmtDY(end)}`;
+    } else {
+      // Same year, different month: e.g., Aug 27 – Sep 10, 2025
+      periodText = `${fmtMD(start)} – ${fmtMDY(end)}`;
+    }
+  } else {
+    // Different years: show both with year
+    periodText = `${fmtMDY(start)} – ${fmtMDY(end)}`;
+  }
+  const footer = document.getElementById('dailyTirWrap');
+  if (footer){
+    let el = document.getElementById('tirPeriod');
+    if (!el){
+      el = document.createElement('div'); el.id = 'tirPeriod';
+      el.style.fontSize = '11px'; el.style.color = '#445'; el.style.margin = '4px 0 6px'; el.style.textAlign = 'center';
+      footer.insertBefore(el, footer.firstChild);
+    }
+    // compute selected days (inclusive) using UTC midnights to be DST-safe
+    const DAY = 24*60*60*1000;
+    const [sel0, sel1] = x.domain().map(d=>+d);
+    const utc0 = (d=> Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))(new Date(sel0));
+    const utc1 = (d=> Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))(new Date(sel1));
+    const days = Math.max(1, Math.floor((utc1 - utc0)/DAY) + 1);
+    const label = days === 1 ? 'Day' : 'Days';
+    el.textContent = `${days} ${label}: ${periodText}`;
+  }
+
+  // slice values && filter valid (not -1)
+  const slice = Array.from(values.slice(idx0, idx1+1)).filter(v=>Number.isFinite(v) && v>=0);
+  const expected = Math.max(1, idx1 - idx0 + 1);
+  const present = slice.length;
+  const activePct = 100 * present / expected;
+  // Show CGM active as a small footnote at the end of the summary
+  try {
+    const el = document.getElementById('sumActiveFoot');
+    if (el) el.textContent = `Time CGM Active: ${activePct.toFixed(1)}%`;
+  } catch {}
+
+  const mean = d3.mean(slice) ?? NaN;
+  const variance = d3.variance(slice) ?? 0;
+  const sd = Math.sqrt(variance);
+  const gmi = Number.isFinite(mean) ? (3.31 + 0.02392 * toMg(mean)) : NaN;
+  const cv = Number.isFinite(mean) && mean !== 0 ? (sd/mean*100) : NaN;
+
+  document.getElementById('sumAvg').textContent = isMmol
+    ? `${mean?.toFixed(1)} mmol/L`
+    : `${Math.round(mean ?? 0)} mg/dL`;
+  document.getElementById('sumGmi').textContent = Number.isFinite(gmi) ? `${gmi.toFixed(1)}%` : '—';
+  document.getElementById('sumCv').textContent  = Number.isFinite(cv)  ? `${cv.toFixed(1)}%`  : '—';
+  // (range used now shown inside TIR card)
+
+}
+
+
+// ---- Show/hide AGP based on selected window length ----
+function updateAGPVisibility(idx0, idx1){
+  // Decide strictly by selected span (not dependent on sample coverage)
+  const DAY = 24*60*60*1000;
+  const [d0, d1] = x.domain().map(d=>+d);
+  const spanDays = (d1 - d0) / DAY;
+  const showAGP = spanDays > 7; // strictly more than 7 days → show AGP; else show chart
+
+  // Toggle wrappers directly
+  const agpWrap = document.getElementById('agpSection');
+  const chartWrap = document.getElementById('chartWrap');
+  if (agpWrap) agpWrap.style.display = showAGP ? '' : 'none'; 
+  if (chartWrap) chartWrap.style.display = showAGP ? 'none' : '';
+
+  // Update AGP inner elements visibility when shown
+  const svgEl = document.getElementById('agpSvg');
+  const msgEl = document.getElementById('agpMsg');
+  if (svgEl) svgEl.style.visibility = showAGP ? 'visible' : 'hidden';
+  if (msgEl) msgEl.style.display = showAGP ? 'none' : 'flex';
+
+  // Update footer meta (use span days, rounded)
+  const meta = document.getElementById('agpMeta');
+  if (meta) meta.textContent = `Days used: ${Math.max(0, Math.floor(spanDays))}`;
+
+  return showAGP;
+}
+
+</script>
+</body>
+</html>

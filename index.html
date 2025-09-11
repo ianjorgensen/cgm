@@ -361,14 +361,17 @@ function drawSeries(){
 
   // no background bands (keep chart clean)
 
-  // threshold lines
-  ctx.strokeStyle="#1a9850"; ctx.lineWidth=2;
-  [LOW(), HIGH()].forEach(val=>{ const yy=y(val); ctx.beginPath(); ctx.moveTo(M.l,yy); ctx.lineTo(W-M.r,yy); ctx.stroke(); });
-
-  // grid
+  // grid: light gray vertical and horizontal lines (drawn behind thresholds)
   ctx.strokeStyle="#f0f0f0"; ctx.lineWidth=1;
   for(const t of x.ticks(10)){ const xp=Math.round(x(t)); ctx.beginPath(); ctx.moveTo(xp,M.t); ctx.lineTo(xp,H-M.b); ctx.stroke(); }
-  for(const g of y.ticks(6)){ const yp=Math.round(y(g)); ctx.beginPath(); ctx.moveTo(M.l,yp); ctx.lineTo(W-M.r,yp); ctx.stroke(); }
+  for(const gy of y.ticks(6)){ const yp=Math.round(y(gy)); ctx.beginPath(); ctx.moveTo(M.l,yp); ctx.lineTo(W-M.r,yp); ctx.stroke(); }
+
+  // threshold lines (light green, subtle)
+  ctx.strokeStyle="#6ea77b"; ctx.lineWidth=1;
+  [LOW(), HIGH()].forEach(val=>{
+    const yy = Math.round(y(val));
+    ctx.beginPath(); ctx.moveTo(M.l, yy); ctx.lineTo(W-M.r, yy); ctx.stroke();
+  });
 
   // line series colored by band with precise boundary splits
   const colorFor = v => (v < LOW() ? '#d73027' : (v > VHIGH() ? '#f46d43' : (v > HIGH() ? '#fdae61' : '#1a9850')));
@@ -442,8 +445,7 @@ function drawSeries(){
     ctx.beginPath();ctx.moveTo(xp,H-M.b);ctx.lineTo(xp,H-M.b+5);ctx.stroke();
     ctx.fillText(fmtTick(t), xp+xOffset, H-M.b+4);
   });
-  // left axis and custom ticks matching AGP
-  ctx.beginPath();ctx.moveTo(M.l-0.5,M.t);ctx.lineTo(M.l-0.5,H-M.b);ctx.stroke();
+  // left axis tick marks only (no vertical axis line)
   const yTicks = [VLOW(), LOW(), HIGH(), VHIGH()].filter(tv=>tv>=y.domain()[0] && tv<=y.domain()[1]);
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
@@ -546,8 +548,8 @@ window.addEventListener("keydown",e=>{
     return;
   }
 
-  // 'l' sets the URL hash to the current view (shareable link)
-  if (k === 'l' && !e.metaKey && !e.ctrlKey && !e.altKey){
+  // 'h' or 'l' sets the URL hash to the current view (shareable link)
+  if ((k === 'h' || k === 'l') && !e.metaKey && !e.ctrlKey && !e.altKey){
     const [d0,d1] = x.domain().map(d=>+d);
     updateHash(d0, d1);
     e.preventDefault();
@@ -1166,7 +1168,7 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
   const wrap = document.getElementById('stripsWrap');
   const Wbox = Math.max(360, (wrap?.getBoundingClientRect()?.width || W));
   const Mx = {l: M.l, r: M.r, t: 4, b: 4};
-  const cols = 7, hGap = 10, vGap = 12;
+  const cols = 7, hGap = 0, vGap = 0; // join days within a week and between rows (no gaps)
   const cellH = 90, innerT = 16; // space for labels
   const cw = Math.floor((Wbox - Mx.l - Mx.r - hGap*(cols-1))/cols);
   const headerH = 24; // top header above tiles for weekday + day labels
@@ -1250,12 +1252,16 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
     const xC = d3.scaleLinear().domain([0, dayLen]).range([0, cw]);
     // panel background
     g.append('rect').attr('width', cw).attr('height', cellH).attr('fill', '#fff');
-    // target band background
+    // target band background (softer grey)
     const yTop = yC(HIGH())+innerT, yBot = yC(LOW())+innerT;
-    g.append('rect').attr('x',0).attr('y',Math.min(yTop,yBot)).attr('width',cw).attr('height',Math.abs(yBot-yTop)).attr('fill','#efefef');
+    g.append('rect')
+      .attr('x',0).attr('y',Math.min(yTop,yBot))
+      .attr('width',cw).attr('height',Math.abs(yBot-yTop))
+      .attr('fill','#e8eaed');
     // labels in header row above tiles
     const dDate = new Date(ds);
     const isFirstOfMonth = dDate.getDate() === 1;
+    const showMonthLabel = isFirstOfMonth || idx === 0; // always show month on the very first tile
     if (r === 0) {
       // Weekday (top line, centered)
       g.append('text')
@@ -1271,7 +1277,7 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
         .attr('y', -headerH + 22)
         .attr('fill','#777')
         .attr('font-size',10);
-      if (isFirstOfMonth){
+      if (showMonthLabel){
         dayText.append('tspan').text(fmtDay(dDate));
         dayText.append('tspan').text(' ' + fmtMonthFull(dDate)).attr('fill','#555');
       } else {
@@ -1282,18 +1288,22 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
       const dayText2 = g.append('text')
         .attr('x', 2)
         .attr('y', 10)
-        .attr('fill','#777')
-        .attr('font-size',10);
-      if (isFirstOfMonth){
+        .attr('fill','#666')
+        .attr('font-size',12)
+        .attr('font-weight',600);
+      if (showMonthLabel){
         dayText2.append('tspan').text(fmtDay(dDate));
         dayText2.append('tspan').text(' ' + fmtMonthFull(dDate)).attr('fill','#555');
       } else {
         dayText2.text(fmtDay(dDate));
       }
     }
-    // thresholds (dynamic)
-    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(LOW())+innerT).attr('y2', yC(LOW())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
-    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(HIGH())+innerT).attr('y2', yC(HIGH())+innerT).attr('stroke','#6ea77b').attr('stroke-width',1);
+    // (dividers removed for fully continuous look)
+    // thresholds (dynamic) — light green rails
+    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(LOW())+innerT).attr('y2', yC(LOW())+innerT)
+      .attr('stroke','#6ea77b').attr('stroke-width',1);
+    g.append('line').attr('x1',0).attr('x2',cw).attr('y1', yC(HIGH())+innerT).attr('y2', yC(HIGH())+innerT)
+      .attr('stroke','#6ea77b').attr('stroke-width',1);
     // data for day
     const arr = (dayMapFull.get(ds) || []).sort((a,b)=>a.t-b.t);
     if (arr.length){
@@ -1336,19 +1346,19 @@ function renderStrips(idx0 = 0, idx1 = values.length-1){
         .curve(d3.curveMonotoneX);
       segs.forEach(seg=>{
         if (seg.length<2) return;
-        // outside selection (grey)
-        g.append('path').attr('d', lineGrey(seg)).attr('fill','none').attr('stroke','#bbb').attr('stroke-width',1.2).attr('opacity',0.9);
-        // fill above target (orange) and below target (red) — more opaque than the lines
-        g.append('path').attr('d', areaAboveHigh(seg)).attr('fill','#fdae61').attr('opacity',0.35);
-        g.append('path').attr('d', areaBelowLow(seg)).attr('fill','#d73027').attr('opacity',0.35);
-        // lines: within target full opacity; above/below slightly subdued for contrast
-        g.append('path').attr('d', lineIn(seg)).attr('fill','none').attr('stroke','#1a9850').attr('stroke-width',1.5);
-        g.append('path').attr('d', lineAbove(seg)).attr('fill','none').attr('stroke','#fdae61').attr('stroke-width',1.5).attr('opacity',0.6);
-        g.append('path').attr('d', lineBelow(seg)).attr('fill','none').attr('stroke','#d73027').attr('stroke-width',1.5).attr('opacity',0.6);
+        // outside selection (grey) — lighter
+        g.append('path').attr('d', lineGrey(seg)).attr('fill','none').attr('stroke','#c7c7c7').attr('stroke-width',1).attr('opacity',0.6);
+        // fills
+        g.append('path').attr('d', areaAboveHigh(seg)).attr('fill','#fdae61').attr('opacity',0.28);
+        g.append('path').attr('d', areaBelowLow(seg)).attr('fill','#d73027').attr('opacity',0.28);
+        // lines
+        g.append('path').attr('d', lineIn(seg)).attr('fill','none').attr('stroke','#1a9850').attr('stroke-width',1.8);
+        g.append('path').attr('d', lineAbove(seg)).attr('fill','none').attr('stroke','#fdae61').attr('stroke-width',1.2).attr('opacity',0.7);
+        g.append('path').attr('d', lineBelow(seg)).attr('fill','none').attr('stroke','#d73027').attr('stroke-width',1.2).attr('opacity',0.7);
       });
     }
     // 12pm label between rows (for every gap between rows)
-    if (r < rows - 1){
+    if (vGap > 0 && r < rows - 1){
       const t = 12*perHr*stepMs;
       const xp = Math.round(xC(t));
       const yMid = cellH + vGap/2; // midway between this row and the next gap
@@ -1857,11 +1867,11 @@ function doUpdateAGP(idx0, idx1){
     place(95, lastOf('p95'));
   } catch {}
 
-  // target lines (green) + vlow/vhigh (light gray)
+  // target lines (light green), vlow/vhigh remain light gray
   svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(HIGH())).attr('y2',yA(HIGH()))
-    .attr('stroke','#1a9850').attr('stroke-width',2);
+    .attr('stroke','#6ea77b').attr('stroke-width',1);
   svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(LOW())).attr('y2',yA(LOW()))
-    .attr('stroke','#1a9850').attr('stroke-width',2);
+    .attr('stroke','#6ea77b').attr('stroke-width',1);
   svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(TH.vlow)).attr('y2',yA(TH.vlow))
     .attr('stroke','#cccccc').attr('stroke-width',1);
   svg.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',yA(TH.vhigh)).attr('y2',yA(TH.vhigh))
@@ -1882,7 +1892,10 @@ function doUpdateAGP(idx0, idx1){
   const cap = isMmol ? 20 : 360;
   const yTicks = baseTicks.concat(cap).filter(v=>v>=yDom[0] && v<=yDom[1]);
   const fmtY = isMmol ? (v=> (Math.round(v*10)/10)) : (v=> Math.round(v));
-  svg.append('g').attr('transform',`translate(${M.l},0)`).call(d3.axisLeft(yA).tickValues(yTicks).tickFormat(fmtY));
+  svg.append('g')
+    .attr('transform',`translate(${M.l},0)`) 
+    .call(d3.axisLeft(yA).tickValues(yTicks).tickFormat(fmtY))
+    .call(g=> g.select('.domain').remove());
   return true;
 }
 
@@ -1914,17 +1927,35 @@ function updateSummary(idx0, idx1){
   document.getElementById('sumCv').textContent  = Number.isFinite(cv)  ? `${cv.toFixed(1)}%`  : '—';
   // show current range preset in summary
   try {
-    const label = globalThis.rangePreset?.label || (isMmol ? '3.9–10.0' : '70–180');
-    let el = document.getElementById('sumRange');
-    if (!el){
+    const nameFor = (id)=> id==='T' ? 'Tight' : (id==='P' ? 'Pregnancy' : 'General');
+    const id = (globalThis.rangePreset && globalThis.rangePreset.id) || 'N';
+    const name = nameFor(id);
+    const low = LOW(), high = HIGH();
+    const rangeStr = isMmol
+      ? `${(Math.round(low*10)/10).toFixed(1)}–${(Math.round(high*10)/10).toFixed(1)} ${units}`
+      : `${Math.round(low)}–${Math.round(high)} ${units}`;
+
+    let rightEl = document.getElementById('sumRange');
+    let labelEl = document.getElementById('sumRangeLabel');
+    if (!rightEl){
       const host = document.getElementById('summary');
       const row = document.createElement('div'); row.className='metric';
-      const left = document.createElement('div'); left.innerHTML = '<b>Range Used</b>';
+      const left = document.createElement('div');
+      const b = document.createElement('b'); b.id = 'sumRangeLabel'; left.appendChild(b);
       const right = document.createElement('div'); right.id = 'sumRange';
       row.appendChild(left); row.appendChild(right); host.appendChild(row);
-      el = right;
+      rightEl = right; labelEl = b;
     }
-    el.textContent = isMmol ? `${label} mmol/L` : `${label} mg/dL`;
+    if (!labelEl && rightEl && rightEl.parentElement){
+      const leftDiv = rightEl.parentElement.firstElementChild;
+      if (leftDiv){
+        let b = leftDiv.querySelector('b');
+        if (!b){ b = document.createElement('b'); leftDiv.textContent=''; leftDiv.appendChild(b); }
+        b.id = 'sumRangeLabel'; labelEl = b;
+      }
+    }
+    if (labelEl) labelEl.textContent = `${name} Range Used`;
+    if (rightEl) rightEl.textContent = rangeStr;
   } catch {}
 }
 
@@ -1935,7 +1966,7 @@ function updateAGPVisibility(idx0, idx1){
   const DAY = 24*60*60*1000;
   const [d0, d1] = x.domain().map(d=>+d);
   const spanDays = (d1 - d0) / DAY;
-  const showAGP = spanDays > 7; // strictly more than 7 days → show AGP; else show chart
+  const showAGP = spanDays >= 7; // at least 7 days → show AGP; else show chart
 
   // Toggle wrappers directly
   const agpWrap = document.getElementById('agpSection');

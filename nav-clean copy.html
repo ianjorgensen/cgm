@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<title>Daily TIR — Clean</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 16px; color:#111; }
+  /* Top section that can collapse */
+  .top { position: sticky; top: 0; background:#fff; z-index: 10; border-bottom:1px solid #eee; }
+  .top-inner { max-width:1100px; margin:0 auto; width:100%; padding: 8px 0 6px; display:flex; flex-direction:column; gap:6px; }
+  .top.collapsed #tirYearly { display:none; }
+  .main { max-width:1100px; margin:0 auto; padding-top: 8px; }
+  #periodText { text-align:left; color:#000; font-size:12px; font-weight:600; margin:0; }
+  #tirYearly { width: 100%; display: block; border: 0; }
+</style>
+
+<body>
+  <div id="topSection" class="top">
+    <div class="top-inner">
+      <canvas id="tirYearly"></canvas>
+      <div id="periodText"></div>
+    </div>
+  </div>
+  <div class="main"></div>
+
+<script type="module">
+import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
+import { units, t0, stepMs, glucose } from './cgm-data/cgm_data.js';
+
+// thresholds (units-aware)
+const isMmol = /mmol/i.test(units);
+const TH = isMmol
+  ? { vlow:3.0, low:3.9, high:10.0, vhigh:13.9 }
+  : { vlow:54,  low:70,  high:180,  vhigh:250 };
+
+// colors for stacked daily TIR
+const DCLR = {
+  vlow: '#e57373',
+  low:  '#ff9e80',
+  targ: '#86c89d',
+  high: '#ffcc80',
+  vhigh:'#ff8a65'
+};
+
+// data → arrays
+const tStart = new Date(t0).getTime();
+const time = Float64Array.from({length: glucose.length}, (_,i)=> tStart + i*stepMs);
+const values = Float64Array.from(glucose);
+
+// per-day aggregation (UTC)
+const dayMs = 24*60*60*1000;
+const dayUTC = (t)=>{ const d=new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+const byDay = new Map();
+for (let i=0;i<values.length;i++){
+  const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
+  const ds = dayUTC(time[i]);
+  let r = byDay.get(ds);
+  if (!r) { r = {valid:0, vl:0, l:0, t:0, h:0, vh:0}; byDay.set(ds, r); }
+  r.valid++;
+  if (v < TH.vlow) r.vl++; else if (v < TH.low) r.l++; else if (v <= TH.high) r.t++; else if (v <= TH.vhigh) r.h++; else r.vh++;
+}
+
+// domain
+const firstAll = dayUTC(time[0]);
+const lastAll  = dayUTC(time[time.length-1]);
+
+// selection (free, up to 1y)
+const MAX_SPAN = 365 * dayMs; // cap at 1 year
+function getHashRange(){
+  const qs = new URLSearchParams((location.hash||'').slice(1));
+  const t = qs.get('t');
+  if (t){
+    const [a,b] = t.split(',').map(x=> +x);
+    if (Number.isFinite(a) && Number.isFinite(b) && a<b) return [a,b];
+  }
+  // default: last 90 days
+  const end = lastAll;
+  const start = Math.max(firstAll, end - 90*dayMs + 1);
+  return [start, end];
+}
+let viewStart = getHashRange()[0];
+let viewEnd   = getHashRange()[1];
+function setHashRange(a,b){
+  const qs = new URLSearchParams((location.hash||'').slice(1));
+  qs.set('t', `${Math.round(a)},${Math.round(b)}`);
+  const target = `#${qs.toString()}`;
+  if (location.hash !== target){ history.replaceState(null, '', target); }
+}
+
+// canvas setup
+const cvs = document.getElementById('tirYearly');
+const ctx = cvs.getContext('2d');
+const M = {l: 48, r: 12, t: 8, b: 8};
+const rowH = 54;
+
+function draw(){
+  const DPR = Math.max(1, window.devicePixelRatio || 1);
+  const cssW = Math.max(320, cvs.getBoundingClientRect().width || 900);
+  const firstYear = new Date(firstAll).getUTCFullYear();
+  const lastYear  = new Date(lastAll).getUTCFullYear();
+  const years = d3.range(firstYear, lastYear+1);
+  const cssH = M.t + years.length * rowH + M.b;
+  cvs.style.width = cssW + 'px';
+  cvs.style.height = cssH + 'px';
+  cvs.width = Math.floor(cssW * DPR);
+  cvs.height = Math.floor(cssH * DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,cssW,cssH);
+
+  const plotW = cssW - M.l - M.r;
+  // subtle month dividers
+  ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1;
+  years.forEach((yr, idx)=>{
+    const yTop = M.t + idx*rowH;
+    for (let m=1;m<12;m++){
+      const t = Date.UTC(yr, m, 1);
+      if (t < firstAll || t > lastAll) continue;
+      const daysInYear = (Date.UTC(yr+1,0,1) - Date.UTC(yr,0,1))/dayMs;
+      const x = M.l + Math.round((t - Date.UTC(yr,0,1)) / dayMs * (plotW / daysInYear));
+      ctx.beginPath(); ctx.moveTo(x, yTop+6); ctx.lineTo(x, yTop + rowH - 6); ctx.stroke();
+    }
+  });
+
+  // rows (full range)
+  years.forEach((yr, idx)=>{
+    const yTop = M.t + idx*rowH;
+    // year label
+    ctx.fillStyle = '#444'; ctx.font = '12px system-ui, sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(String(yr), M.l - 8, yTop + rowH/2);
+
+    const startY = Date.UTC(yr,0,1);
+    const endY = Date.UTC(yr+1,0,1) - dayMs; // inclusive
+    const daysInYear = Math.round((Date.UTC(yr+1,0,1) - Date.UTC(yr,0,1))/dayMs);
+    const xScale = (t)=> M.l + Math.floor(((t - Date.UTC(yr,0,1)) / dayMs) * (plotW / daysInYear));
+    const H = rowH - 10;
+    const yBase = yTop + 5;
+    for (let t = Math.max(startY, firstAll); t <= Math.min(endY, lastAll); t += dayMs){
+      const x0 = xScale(t);
+      const x1 = xScale(t + dayMs);
+      const w = Math.max(1, x1 - x0);
+      const r = byDay.get(t);
+      if (!r || !r.valid){ ctx.fillStyle = '#efefef'; ctx.fillRect(x0, yBase, w, H); continue; }
+      const samplesPerDay = Math.max(1, Math.round(dayMs/stepMs));
+      const frac = { vl:r.vl/r.valid, l:r.l/r.valid, t:r.t/r.valid, h:r.h/r.valid, vh:r.vh/r.valid };
+      let yb = yBase + H;
+      const seg = (color, f, a)=>{ const h=Math.round(f*H); if(h<=0) return; yb-=h; ctx.fillStyle=color; ctx.globalAlpha=a; ctx.fillRect(x0,yb,w,h); };
+      const alphaBase = (r.valid / samplesPerDay) >= 0.5 ? 0.8 : 0.4;
+      const alphaT = (r.valid / samplesPerDay) >= 0.5 ? 0.9 : 0.6;
+      seg(DCLR.vlow, frac.vl, alphaBase);
+      seg(DCLR.low,  frac.l,  alphaBase);
+      seg(DCLR.targ, frac.t,  alphaT);
+      seg(DCLR.high, frac.h,  alphaBase);
+      seg(DCLR.vhigh,frac.vh, alphaBase);
+      ctx.globalAlpha = 1;
+    }
+  });
+
+  // overlay selection across the same year rows
+  years.forEach((yr, idx)=>{
+    const yTop = M.t + idx*rowH;
+    const startY = Date.UTC(yr,0,1);
+    const endY = Date.UTC(yr+1,0,1) - 1;
+    const a = Math.max(startY, viewStart);
+    const b = Math.min(endY, viewEnd);
+    if (a>b) return;
+    const daysInYear = (Date.UTC(yr+1,0,1) - Date.UTC(yr,0,1))/dayMs;
+    const xScale = (t)=> M.l + Math.floor(((t - Date.UTC(yr,0,1)) / dayMs) * (plotW / daysInYear));
+    const xA = xScale(a);
+    const xB = xScale(b + 1);
+    const yBase = yTop + 5;
+    const H = rowH - 10;
+    ctx.save();
+    ctx.fillStyle = 'rgba(107, 127, 161, 0.28)';
+    ctx.fillRect(xA, yBase, Math.max(1, xB - xA), H);
+    ctx.strokeStyle = '#6b7fa1'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(xA+0.5, yBase+0.5); ctx.lineTo(xA+0.5, yBase+H-0.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(xB-0.5, yBase+0.5); ctx.lineTo(xB-0.5, yBase+H-0.5); ctx.stroke();
+    ctx.restore();
+  });
+}
+
+// period label
+const fmtMD = d3.timeFormat('%b %e');
+const fmtMDY = d3.timeFormat('%b %e, %Y');
+const fmtDY  = d3.timeFormat('%e, %Y');
+function updatePeriodText(){
+  const el = document.getElementById('periodText'); if (!el) return;
+  const s = new Date(viewStart), e = new Date(viewEnd);
+  const utc0 = Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
+  const utc1 = Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
+  const days = Math.max(1, Math.floor((utc1 - utc0)/dayMs) + 1);
+  let periodText;
+  const sameDay = utc0 === utc1;
+  if (sameDay) periodText = fmtMDY(e);
+  else if (s.getFullYear() === e.getFullYear()){
+    if (s.getMonth() === e.getMonth()) periodText = `${fmtMD(s)} – ${fmtDY(e)}`;
+    else periodText = `${fmtMD(s)} – ${fmtMDY(e)}`;
+  } else {
+    periodText = `${fmtMDY(s)} – ${fmtMDY(e)}`;
+  }
+  el.textContent = `${days} Days: ${periodText}`;
+}
+
+// mouse selection (free, <= 1 year)
+(function bindSelection(){
+  const cvs = document.getElementById('tirYearly');
+  const toDay = (t)=>{ const d=new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+  let dragging=false, mode=null, tAnchor=null, startAtDown=null, endAtDown=null;
+  const nearPx=6;
+  function geometry(){
+    const cssW = Math.max(320, cvs.getBoundingClientRect().width || 900);
+    const plotW = cssW - M.l - M.r; const rowH=54, top=8;
+    const years = d3.range(new Date(firstAll).getUTCFullYear(), new Date(lastAll).getUTCFullYear()+1);
+    return { cssW, plotW, rowH, top, years };
+  }
+  function xScaleForYear(yr, plotW){
+    const daysInYear = (Date.UTC(yr+1,0,1)-Date.UTC(yr,0,1))/dayMs;
+    return (t)=> M.l + Math.floor(((t - Date.UTC(yr,0,1))/dayMs) * (plotW/daysInYear));
+  }
+  function infoFromEvent(ev){
+    const rect=cvs.getBoundingClientRect(); const x=ev.clientX-rect.left, y=ev.clientY-rect.top;
+    const { cssW, plotW, rowH, top, years } = geometry();
+    const idx = Math.floor((y-top)/rowH); if (idx<0 || idx>=years.length) return null;
+    const yr=years[idx]; const x0=M.l, x1=cssW-M.r; const cx=Math.max(x0, Math.min(x1, x));
+    const daysInYear=(Date.UTC(yr+1,0,1)-Date.UTC(yr,0,1))/dayMs; const frac=(cx-x0)/(x1-x0);
+    let t = Date.UTC(yr,0,1) + frac*daysInYear*dayMs; t=Math.max(firstAll, Math.min(lastAll, t));
+    return { t, yr, x:cx };
+  }
+  cvs.addEventListener('mousedown', (e)=>{
+    const info = infoFromEvent(e); if (!info) return;
+    const { plotW } = geometry(); const xs = xScaleForYear(info.yr, plotW);
+    const xA = xs(Math.max(Date.UTC(info.yr,0,1), viewStart));
+    const xB = xs(Math.min(Date.UTC(info.yr+1,0,1)-1, viewEnd))+1;
+    mode='new'; if (info.x>=xA-nearPx && info.x<=xA+nearPx) mode='resize-l'; else if (info.x>=xB-nearPx && info.x<=xB+nearPx) mode='resize-r'; else if (info.x>xA && info.x<xB) mode='move';
+    dragging=true; tAnchor=info.t; startAtDown=viewStart; endAtDown=viewEnd; document.body.style.userSelect='none'; cvs.style.cursor=(mode==='move'?'grabbing':(mode==='new'?'crosshair':'col-resize'));
+  });
+  window.addEventListener('mousemove', (e)=>{
+    const info = infoFromEvent(e); if (!info){ if(!dragging) cvs.style.cursor='crosshair'; return; }
+    if (!dragging){
+      const { plotW } = geometry(); const xs = xScaleForYear(info.yr, plotW);
+      const xA = xs(Math.max(Date.UTC(info.yr,0,1), viewStart)); const xB = xs(Math.min(Date.UTC(info.yr+1,0,1)-1, viewEnd))+1;
+      if (info.x>=xA-nearPx && info.x<=xA+nearPx) cvs.style.cursor='col-resize'; else if (info.x>=xB-nearPx && info.x<=xB+nearPx) cvs.style.cursor='col-resize'; else if (info.x>xA && info.x<xB) cvs.style.cursor='grab'; else cvs.style.cursor='crosshair';
+      return;
+    }
+    const day = dayMs; const t = info.t;
+    if (mode==='new'){
+      let a = toDay(Math.min(tAnchor, t)); let b = toDay(Math.max(tAnchor, t)) + day - 1;
+      if (b - a + 1 > MAX_SPAN){
+        if (t >= tAnchor){ b = a + MAX_SPAN - 1; } else { a = Math.max(firstAll, b - MAX_SPAN + 1); }
+      }
+      viewStart = Math.max(firstAll, a); viewEnd = Math.min(lastAll, b);
+    } else if (mode==='resize-l'){
+      let a = toDay(Math.min(t, endAtDown - day + 1));
+      if (endAtDown - a + 1 > MAX_SPAN) a = endAtDown - MAX_SPAN + 1;
+      viewStart = Math.max(firstAll, Math.min(a, endAtDown - day + 1)); viewEnd = endAtDown;
+    } else if (mode==='resize-r'){
+      let b = toDay(t) + day - 1; if (b - startAtDown + 1 > MAX_SPAN) b = startAtDown + MAX_SPAN - 1;
+      b = Math.max(startAtDown + day - 1, Math.min(lastAll, b)); viewStart = startAtDown; viewEnd = b;
+    } else if (mode==='move'){
+      const span = (endAtDown - startAtDown + 1); const deltaDays = Math.round((toDay(t)-toDay(tAnchor))/day);
+      let ns = startAtDown + deltaDays*day; ns = Math.max(firstAll, Math.min(lastAll - span + 1, ns)); viewStart = ns; viewEnd = ns + span - 1;
+    }
+    setHashRange(viewStart, viewEnd); draw(); updatePeriodText();
+  });
+  window.addEventListener('mouseup', ()=>{ if(dragging){ dragging=false; mode=null; document.body.style.userSelect=''; cvs.style.cursor='crosshair'; }});
+  cvs.style.cursor='crosshair';
+})();
+
+// initial
+updatePeriodText();
+draw();
+window.addEventListener('resize', draw);
+window.addEventListener('hashchange', ()=>{ const [a,b]=getHashRange(); viewStart=a; viewEnd=b; draw(); updatePeriodText(); });
+
+// Collapse/expand top section with 'H'
+(function topSectionToggle(){
+  const top = document.getElementById('topSection');
+  function toggle(){
+    if (!top) return;
+    const wasCollapsed = top.classList.toggle('collapsed');
+    if (!wasCollapsed){
+      // expanding → redraw to fit new width/height
+      draw();
+    }
+  }
+  window.addEventListener('keydown', (e)=>{
+    if ((e.key === 'h' || e.key === 'H') && !e.metaKey && !e.ctrlKey && !e.altKey){
+      toggle(); e.preventDefault();
+    }
+  });
+  // expose for possible external control
+  window.toggleTopSection = toggle;
+})();
+</script>
+</body>
+</html>

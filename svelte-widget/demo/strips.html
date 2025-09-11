@@ -1,0 +1,50 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CGM Strips Demo</title>
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 16px; }
+  #strips { max-width: 1100px; margin: 0 auto; }
+  #controls { max-width:1100px; margin:8px auto 0; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .btn { padding:6px 12px; border:1px solid #bbb; border-radius:10px; background:#f7f7f7; cursor:pointer; font-weight:600; }
+  .btn:hover { background:#eee; }
+  .btn.active { background:#333; color:#fff; border-color:#333; }
+  .hint { margin-left:auto; color:#999; }
+</style>
+
+<div id="strips"></div>
+<div id="controls">
+  <span>Preset:</span>
+  <button id="pN" class="btn active">General</button>
+  <button id="pT" class="btn">Tight</button>
+  <button id="pP" class="btn">Pregnancy</button>
+  <span style="margin-left:20px;">Window:</span>
+  <button id="d14" class="btn active">14d</button>
+  <button id="d30" class="btn">30d</button>
+  <button id="d90" class="btn">90d</button>
+  <span class="hint">T/P to toggle preset</span>
+</div>
+
+<link rel="stylesheet" href="../dist/lib/style.css" />
+<script src="../dist/lib/cgm-tir.umd.js"></script>
+<script>
+  fetch('../../cgm-data/cgm_data.json').then(r=>r.json()).then(data => {
+    const DAY = 24*60*60*1000
+    const t0 = new Date(data.t0).getTime()
+    const tEnd = t0 + data.stepMs * (data.glucose.length - 1)
+    let endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
+    let startDay = Math.max(t0, endDay - 14*DAY + 1)
+    const api = window.createCgmStrips('strips', data, { initialRange: { start: startDay, end: endDay }, preset: 'N' })
+
+    function setPreset(p){ window.__preset=p; api.setPreset(p); document.getElementById('pN').classList.toggle('active',p==='N'); document.getElementById('pT').classList.toggle('active',p==='T'); document.getElementById('pP').classList.toggle('active',p==='P') }
+    function setDays(n){ startDay = Math.max(t0, endDay - n*DAY + 1); api.setRange({ start: startDay, end: endDay }); document.getElementById('d14').classList.toggle('active',n===14); document.getElementById('d30').classList.toggle('active',n===30); document.getElementById('d90').classList.toggle('active',n===90) }
+
+    document.getElementById('pN').onclick = ()=> setPreset('N')
+    document.getElementById('pT').onclick = ()=> setPreset('T')
+    document.getElementById('pP').onclick = ()=> setPreset('P')
+    document.getElementById('d14').onclick = ()=> setDays(14)
+    document.getElementById('d30').onclick = ()=> setDays(30)
+    document.getElementById('d90').onclick = ()=> setDays(90)
+    window.addEventListener('keydown',(e)=>{ const tag=(e.target&&e.target.tagName)?e.target.tagName.toLowerCase():''; if(['input','textarea','select'].includes(tag)) return; if(e.key.toLowerCase()==='t'){ setPreset((window.__preset||'N')==='T'?'N':'T'); e.preventDefault() } if(e.key.toLowerCase()==='p'){ setPreset((window.__preset||'N')==='P'?'N':'P'); e.preventDefault() } })
+  })
+</script>

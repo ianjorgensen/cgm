@@ -1,0 +1,21 @@
+{
+  "name": "cgm-tir-widget",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build:lib": "vite build --config vite.lib.config.ts",
+    "build:ce": "vite build --config vite.ce.config.ts"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "svelte": "^4.2.18"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.1.2",
+    "typescript": "^5.4.5",
+    "vite": "^5.4.0"
+  }
+}
+

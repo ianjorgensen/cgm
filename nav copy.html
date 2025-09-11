@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<title>Daily TIR — Year Rows</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 16px; color:#111; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  #tirYearly { width: 100%; display: block; border: 0; }
+  .legend { margin-top: 8px; color:#444; text-align:center; }
+  .sw { width:14px; height:10px; border-radius:2px; display:inline-block; margin-right:6px; vertical-align:middle; }
+</style>
+
+<body>
+  <div class="container">
+    <h3 style="margin:4px 0 8px; font-weight:600;">Daily Time-in-Range (by Year)</h3>
+    <div id="controls" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin: 0 0 8px 0;">
+      <div style="font-weight:600; color:#444;">Period:</div>
+      <button data-range="all" class="pbtn">All</button>
+      <button data-range="90d" class="pbtn">90d</button>
+      <button data-range="180d" class="pbtn">180d</button>
+      <button data-range="365d" class="pbtn">1y</button>
+      <span style="margin-left:12px; color:#444;">Year:</span>
+      <select id="yearPick"></select>
+    </div>
+    <canvas id="tirYearly"></canvas>
+    <div id="periodText" style="text-align:center; color:#445; font-size:12px; margin:8px 0 6px;"></div>
+    <div id="quick" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin:10px 0 4px;">
+      <button class="qbtn" data-span="1">1 day</button>
+      <button class="qbtn" data-span="3">3 days</button>
+      <button class="qbtn" data-span="7">7 days</button>
+      <button class="qbtn" data-span="14">14 days</button>
+      <button class="qbtn" data-span="30">30 days</button>
+      <button class="qbtn" data-span="90">90 days</button>
+    </div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+<script type="module">
+import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
+import { units, t0, stepMs, glucose } from './cgm-data/cgm_data.js';
+
+// thresholds
+const isMmol = /mmol/i.test(units);
+const TH = isMmol
+  ? { vlow:3.0, low:3.9, high:10.0, vhigh:13.9 }
+  : { vlow:54,  low:70,  high:180,  vhigh:250 };
+
+// colors (match app palette; slightly soft)
+const DCLR = {
+  vlow: '#e57373',
+  low:  '#ff9e80',
+  targ: '#86c89d',
+  high: '#ffcc80',
+  vhigh:'#ff8a65'
+};
+
+// build time/value arrays
+const tStart = new Date(t0).getTime();
+const time = Float64Array.from({length: glucose.length}, (_,i)=> tStart + i*stepMs);
+const values = Float64Array.from(glucose);
+
+// map per UTC day
+const dayMs = 24*60*60*1000;
+const dayUTC = (t)=>{ const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+const byDay = new Map();
+for (let i=0;i<values.length;i++){
+  const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue;
+  const ds = dayUTC(time[i]);
+  let r = byDay.get(ds);
+  if (!r) { r = {valid:0, vl:0, l:0, t:0, h:0, vh:0}; byDay.set(ds, r); }
+  r.valid++;
+  if (v < TH.vlow) r.vl++; else if (v < TH.low) r.l++; else if (v <= TH.high) r.t++; else if (v <= TH.vhigh) r.h++; else r.vh++;
+}
+if (!byDay.size){
+  document.getElementById('tirYearly').replaceWith(Object.assign(document.createElement('div'),{textContent:'No data'}));
+}
+
+// domain (first..last day inclusive)
+const firstAll = dayUTC(time[0]);
+const lastAll  = dayUTC(time[time.length-1]);
+const firstYearAll = new Date(firstAll).getUTCFullYear();
+const lastYearAll  = new Date(lastAll).getUTCFullYear();
+
+// current view range (defaults to All)
+function getHashRange(){
+  const qs = new URLSearchParams((location.hash||'').slice(1));
+  const t = qs.get('t');
+  if (t){
+    const [a,b] = t.split(',').map(x=> +x);
+    if (Number.isFinite(a) && Number.isFinite(b) && a<b) return [a,b];
+  }
+  return [firstAll, lastAll];
+}
+let viewStart = getHashRange()[0];
+let viewEnd   = getHashRange()[1];
+
+function setHashRange(a,b){
+  const qs = new URLSearchParams((location.hash||'').slice(1));
+  qs.set('t', `${Math.round(a)},${Math.round(b)}`);
+  const target = `#${qs.toString()}`;
+  if (location.hash !== target){ history.replaceState(null, '', target); }
+}
+
+// draw
+const cvs = document.getElementById('tirYearly');
+const ctx = cvs.getContext('2d');
+const M = {l: 48, r: 12, t: 8, b: 8};
+const rowH = 54; // height per year row
+function draw(){
+  const DPR = Math.max(1, window.devicePixelRatio || 1);
+  const cssW = Math.max(320, cvs.getBoundingClientRect().width || 900);
+  const firstT = viewStart, lastT = viewEnd;
+  const firstYear = new Date(firstT).getUTCFullYear();
+  const lastYear  = new Date(lastT).getUTCFullYear();
+  const years = d3.range(firstYear, lastYear+1);
+  const cssH = M.t + years.length * rowH + M.b;
+  cvs.style.width = cssW + 'px';
+  cvs.style.height = cssH + 'px';
+  cvs.width = Math.floor(cssW * DPR);
+  cvs.height = Math.floor(cssH * DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,cssW,cssH);
+
+  const plotW = cssW - M.l - M.r;
+
+  // background month grid (optional subtle)
+  ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1;
+  years.forEach((yr, idx)=>{
+    const yTop = M.t + idx*rowH;
+    // month ticks
+    const start = Date.UTC(yr, 0, 1);
+    const end   = Date.UTC(yr+1, 0, 1);
+    for (let m=1;m<12;m++){
+      const t = Date.UTC(yr, m, 1);
+      if (t < firstT || t > lastT) continue;
+      const daysInYear = (Date.UTC(yr+1,0,1) - Date.UTC(yr,0,1))/dayMs;
+      const x = M.l + Math.round((t - Date.UTC(yr,0,1)) / dayMs * (plotW / daysInYear));
+      ctx.beginPath(); ctx.moveTo(x, yTop+6); ctx.lineTo(x, yTop + rowH - 6); ctx.stroke();
+    }
+  });
+
+  // draw days stacked per year
+  years.forEach((yr, idx)=>{
+    const yTop = M.t + idx*rowH;
+    // label
+    ctx.fillStyle = '#444'; ctx.font = '12px system-ui, sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(String(yr), M.l - 8, yTop + rowH/2);
+
+    const startY = Date.UTC(yr,0,1);
+    const endY = Date.UTC(yr+1,0,1) - dayMs; // inclusive last day of year
+    const daysInYear = Math.round((Date.UTC(yr+1,0,1) - Date.UTC(yr,0,1))/dayMs);
+    const xScale = (t)=> M.l + Math.floor(((t - Date.UTC(yr,0,1)) / dayMs) * (plotW / daysInYear));
+    const H = rowH - 10; // usable height inside row
+    const yBase = yTop + 5;
+    for (let t = Math.max(startY, firstT); t <= Math.min(endY, lastT); t += dayMs){
+      const x0 = xScale(t);
+      const x1 = xScale(t + dayMs);
+      const w = Math.max(1, x1 - x0);
+      const r = byDay.get(t);
+      if (!r || !r.valid){
+        ctx.fillStyle = '#efefef';
+        ctx.globalAlpha = 1;
+        ctx.fillRect(x0, yBase, w, H);
+        continue;
+      }
+      const samplesPerDay = Math.max(1, Math.round(dayMs/stepMs));
+      const frac = {
+        vl: r.vl / r.valid,
+        l:  r.l  / r.valid,
+        t:  r.t  / r.valid,
+        h:  r.h  / r.valid,
+        vh: r.vh / r.valid,
+      };
+      let yb = yBase + H;
+      const seg = (color, f, alpha)=>{
+        const h = Math.round(f * H);
+        if (h <= 0) return;
+        yb -= h; ctx.fillStyle = color; ctx.globalAlpha = alpha; ctx.fillRect(x0, yb, w, h);
+      };
+      const alphaBase = (r.valid / samplesPerDay) >= 0.5 ? 0.8 : 0.4;
+      const alphaT = (r.valid / samplesPerDay) >= 0.5 ? 0.9 : 0.6;
+      seg(DCLR.vlow, frac.vl, alphaBase);
+      seg(DCLR.low,  frac.l,  alphaBase);
+      seg(DCLR.targ, frac.t,  alphaT);
+      seg(DCLR.high, frac.h,  alphaBase);
+      seg(DCLR.vhigh,frac.vh, alphaBase);
+      ctx.globalAlpha = 1;
+    }
+  });
+}
+
+function renderLegend(){
+  const box = document.getElementById('legend');
+  const parts = [
+    {c:DCLR.vlow, t:isMmol?'< 3.0':'< 54'},
+    {c:DCLR.low,  t:isMmol?'3.0–3.9':'54–70'},
+    {c:DCLR.targ, t:isMmol?'3.9–10.0':'70–180'},
+    {c:DCLR.high, t:isMmol?'10.0–13.9':'180–250'},
+    {c:DCLR.vhigh,t:isMmol?'> 13.9':'> 250'}
+  ];
+  parts.forEach(p=>{
+    const span = document.createElement('span');
+    const sw = document.createElement('span'); sw.className='sw'; sw.style.background=p.c;
+    span.appendChild(sw); span.appendChild(document.createTextNode(p.t));
+    span.style.marginRight = '10px';
+    box.appendChild(span);
+  });
+}
+
+renderLegend();
+// Controls: period buttons and year selector
+function initControls(){
+  const yearSel = document.getElementById('yearPick');
+  const optAll = document.createElement('option'); optAll.value='all'; optAll.textContent='All years'; yearSel.appendChild(optAll);
+  for (let y = firstYearAll; y <= lastYearAll; y++){
+    const o = document.createElement('option'); o.value=String(y); o.textContent=String(y); yearSel.appendChild(o);
+  }
+  yearSel.value = 'all';
+  yearSel.addEventListener('change', ()=>{
+    if (yearSel.value === 'all'){ viewStart = firstAll; viewEnd = lastAll; }
+    else {
+      const y = +yearSel.value;
+      viewStart = Date.UTC(y,0,1);
+      viewEnd   = Math.min(lastAll, Date.UTC(y+1,0,1) - dayMs);
+    }
+    setHashRange(viewStart, viewEnd);
+    draw();
+  });
+  // buttons
+  document.querySelectorAll('.pbtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const k = btn.getAttribute('data-range');
+      if (k === 'all'){ viewStart = firstAll; viewEnd = lastAll; yearSel.value='all'; }
+      else {
+        const map = { '90d': 90, '180d': 180, '365d': 365 };
+        const d = (map[k]||365) * dayMs;
+        viewEnd = lastAll;
+        viewStart = Math.max(firstAll, viewEnd - d + 1);
+        yearSel.value = 'all';
+      }
+      setHashRange(viewStart, viewEnd);
+      draw();
+    });
+  });
+  // initialize from hash if present
+  const [hs,he] = getHashRange(); viewStart=hs; viewEnd=he;
+  // bottom quick buttons
+  document.querySelectorAll('#quick .qbtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const days = +btn.getAttribute('data-span');
+      const d = days * dayMs;
+      viewEnd = lastAll;
+      viewStart = Math.max(firstAll, viewEnd - d + 1);
+      yearSel.value = 'all';
+      setHashRange(viewStart, viewEnd);
+      draw();
+    });
+  });
+}
+
+initControls();
+draw();
+window.addEventListener('resize', draw);
+</script>
+</body>
+</html>
