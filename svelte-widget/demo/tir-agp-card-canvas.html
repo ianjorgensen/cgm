@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TIR AGP Card (Canvas) Demo</title>
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 16px; }
+  #card { max-width: 900px; margin: 0 auto; }
+</style>
+
+<div id="card"></div>
+
+<link rel="stylesheet" href="../dist/lib/style.css" />
+<script src="../dist/lib/cgm-tir.umd.js"></script>
+<script>
+  fetch('../../cgm-data/cgm_data.json').then(r=>r.json()).then(data => {
+    const t0 = new Date(data.t0).getTime()
+    const tEnd = t0 + data.stepMs * (data.glucose.length - 1)
+    const DAY = 24*60*60*1000
+    const endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
+    const startDay = Math.max(t0, endDay - 14*DAY + 1)
+    const api = window.createCgmTirAgpCardCanvas('card', data, { initialRange: { start: startDay, end: endDay }, preset: 'N' })
+  })
+</script>
+

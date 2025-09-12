@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Detailed TIR Widget Demo</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: 0 auto; }
+        h1 { color: #333; }
+        .demo { margin: 20px 0; }
+        .controls { margin: 10px 0; }
+        button { margin: 5px; padding: 8px 16px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Detailed TIR Widget Demo</h1>
+        
+        <div class="controls">
+            <button onclick="setPreset('N')">General Range</button>
+            <button onclick="setPreset('T')">Tight Range</button>
+            <button onclick="setPreset('P')">Pregnancy Range</button>
+        </div>
+        
+        <div class="demo">
+            <div id="tir-detailed"></div>
+        </div>
+    </div>
+
+    <link rel="stylesheet" href="../dist/lib/style.css" />
+    <script src="../dist/lib/cgm-tir.umd.js"></script>
+    <script>
+        fetch('../../cgm-data/cgm_data.json').then(r=>r.json()).then(data => {
+            const t0 = new Date(data.t0).getTime()
+            const tEnd = t0 + data.stepMs * (data.glucose.length - 1)
+            const DAY = 24*60*60*1000
+            const endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
+            const startDay = Math.max(t0, endDay - 7*DAY + 1) // last 7 days
+            
+            const make = window.createCgmTirDetailed
+            if (!make) { 
+                throw new Error('createCgmTirDetailed not found; try cache-busting the UMD script or rebuilding.') 
+            }
+            
+            const widget = make('tir-detailed', data, { 
+                initialRange: { start: startDay, end: endDay }, 
+                preset: 'N' 
+            });
+
+            window.setPreset = function(preset) {
+                widget.setPreset(preset);
+            }
+        }).catch(err => {
+            console.error('Failed to load data:', err)
+            document.getElementById('tir-detailed').innerHTML = 
+                '<p style="color: red;">Failed to load CGM data. Make sure cgm_data.json is available at ../../cgm-data/cgm_data.json</p>'
+        })
+    </script>
+</body>
+</html>

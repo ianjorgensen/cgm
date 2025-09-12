@@ -84,16 +84,18 @@
   onMount(()=>{ initSeries() })
 </script>
 
-  <div class="summary" style="border:1px solid #eee; border-radius:8px; padding:10px; background:#fff;">
-  <div class="metric"><div><b>Time Periods</b></div><div>{periodText} ({daysCount} days)</div></div>
+  <div class="summary" style="padding:0 10px;">
+  <!--<div class="metric"><div><b>Time Periods</b></div><div>{periodText} ({daysCount} days)</div></div>-->
   <div class="metric"><div><b>Average Glucose</b><div class="muted">Goal: {isMmol() ? `Target ${TH().low.toFixed(1)}–${TH().high.toFixed(1)} mmol/L` : `Target ${Math.round(TH().low)}–${Math.round(TH().high)} mg/dL`}</div></div><div>{avgText}</div></div>
   <div class="metric"><div><b>Glucose Management Indicator (GMI)</b><div class="muted">Goal: &lt;7%</div></div><div>{gmiText}</div></div>
   <div class="metric"><div><b>Glucose Variability (CV)</b><div class="muted">Goal: ≤36%</div></div><div>{cvText}</div></div>
-  <div class="muted" style="font-size:11px; margin-top:6px;">Time CGM Active: {activeText}%</div>
+  <div class="muted" style="font-size:11px; margin-top:6px; margin-left: 8px;">Time CGM Active: {activeText}%</div>
 </div>
 
 <style>
   .metric { display:flex; justify-content:space-between; padding:6px 8px; border-bottom:1px solid #f1f1f1; }
   .metric:last-child { border-bottom:none; }
+  /* Emphasize right-side values */
+  .metric > div:last-child { font-weight:700; color:#111; }
   .muted { color:#777; }
 </style>

@@ -3,21 +3,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Demo All Widgets</title>
 <style>
-  body { font: 12px system-ui, sans-serif; margin: 16px; }
-  .wrap { max-width: 900px; margin: 0 auto; }
-  #viz { margin-bottom: 12px; }
-  .row { display:flex; gap:16px; align-items:flex-start; }
+  body { font: 12px system-ui, sans-serif; margin: 0; padding: 20px; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 20px; }
+  #viz { margin-bottom: 20px; }
+  .row { display:flex; gap:20px; align-items:flex-start; margin-bottom: 20px; }
   .row > div { flex:1 1 0; min-width:0; }
+  #agp, #strips { margin-top: 20px; }
+  /* Fix strips width to 840px in demo */
+  #strips { width: 840px; margin-top: 30px; }
+  #tirdetailed {padding-left: 10px }
+  #summary {padding-right: 50px }
+  #controlBar {padding: 0 50px}
 </style>
 
 <div class="wrap">
   <div id="viz"></div>
-  <div class="row" id="rowST" style="margin-top:8px;">
+  <div class="row" id="rowST">
+    <div id="tirdetailed"></div>
     <div id="summary"></div>
+    <!--
     <div id="tirbar"></div>
+    <div id="tircard"></div>
+    <div id="tiragpcard"></div>
+    -->
   </div>
-  <div id="agp" style="margin-top:12px;"></div>
-  <div id="strips" style="margin-top:12px;"></div>
+  <div id="agp"></div>
+  <div id="strips"></div>
 </div>
 
 <link rel="stylesheet" href="../dist/lib/style.css" />
@@ -33,10 +44,15 @@
     const endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
     const startDay = Math.max(t0, endDay - 14*DAY + 1) // default: last 14 days
 
-    const calendar = window.createTirCalendar('viz', data, { initialRange: { start: startDay, end: endDay }, preset: 'N' })
+    const calendar = window.createTirCalendar('viz', data, { initialRange: { start: startDay, end: endDay }, preset: 'N', canvasVisible: false })
     // Summary stays in sync with calendar selection
     const summary = window.createCgmSummary('summary', data, { source: calendar, preset: 'N' })
-    const tirbar  = window.createCgmTirBar('tirbar', data, { source: calendar, preset: 'N' })
+    //const tirbar  = window.createCgmTir('tirbar', data, { source: calendar, preset: 'N' })
+    //const makeClaude = window.createCgmTirClaude || (window.CgmTir && window.CgmTir.createCgmTirClaude)
+    //const tirclaude = makeClaude ? makeClaude('tirclaude', data, { source: calendar, preset: 'N' }) : null
+    //const tircard = window.createCgmTirCard('tircard', data, { source: calendar, preset: 'N' })
+    //const tiragpcard = window.createCgmTirAgpCard('tiragpcard', data, { source: calendar, preset: 'N' })
+    const tirdetailed = window.createCgmTirDetailed('tirdetailed', data, { source: calendar, preset: 'N' })
     const strips  = window.createCgmStrips('strips', data, { source: calendar, preset: 'N' })
     const agp     = window.createCgmAgp('agp', data, { source: calendar, preset: 'N' })
 
@@ -48,13 +64,13 @@
         const cur = (window.__preset || 'N')
         const nxt = (cur==='T') ? 'N' : 'T'
         window.__preset = nxt
-        calendar.setPreset(nxt); summary.setPreset(nxt); tirbar.setPreset(nxt); strips.setPreset(nxt); agp.setPreset(nxt)
+        calendar.setPreset(nxt); summary.setPreset(nxt); tirdetailed.setPreset(nxt); strips.setPreset(nxt); agp.setPreset(nxt)
         e.preventDefault()
       } else if (e.key.toLowerCase()==='p'){
         const cur = (window.__preset || 'N')
         const nxt = (cur==='P') ? 'N' : 'P'
         window.__preset = nxt
-        calendar.setPreset(nxt); summary.setPreset(nxt); tirbar.setPreset(nxt); strips.setPreset(nxt); agp.setPreset(nxt)
+        calendar.setPreset(nxt); summary.setPreset(nxt); tirdetailed.setPreset(nxt); strips.setPreset(nxt); agp.setPreset(nxt)
         e.preventDefault()
       }
     })

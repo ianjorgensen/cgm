@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TIR Claude (SVG) Demo</title>
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 16px; }
+  #viz { max-width: 420px; margin: 0 auto; }
+  #presetControls { max-width:420px; margin:12px auto 0; display:flex; gap:10px; align-items:center; }
+  #presetControls .btn { padding:6px 12px; border:1px solid #bbb; border-radius:10px; background:#f7f7f7; cursor:pointer; font-weight:600; }
+  #presetControls .btn:hover{ background:#eee; }
+  #presetControls .btn.active{ background:#333; color:#fff; border-color:#333; }
+  #presetControls .hint{ margin-left:auto; color:#999; }
+</style>
+
+<div id="viz"></div>
+<div id="presetControls">
+  <button id="btnN" class="btn active">General</button>
+  <button id="btnT" class="btn">Tight</button>
+  <button id="btnP" class="btn">Pregnancy</button>
+  <span class="hint">or press T/P to toggle</span>
+</div>
+
+<link rel="stylesheet" href="../dist/lib/style.css" />
+<script src="../dist/lib/cgm-tir.umd.js?v=claude1"></script>
+<script>
+  fetch('../../cgm-data/cgm_data.json').then(r=>r.json()).then(data => {
+    const t0 = new Date(data.t0).getTime()
+    const tEnd = t0 + data.stepMs * (data.glucose.length - 1)
+    const DAY = 24*60*60*1000
+    const endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
+    const startDay = Math.max(t0, endDay - 14*DAY + 1)
+    const make = window.createCgmTirClaude || (window.CgmTir && window.CgmTir.createCgmTirClaude)
+    if (!make) { throw new Error('createCgmTirClaude not found; try cache-busting the UMD script or rebuilding.') }
+    const api = make('viz', data, { initialRange: { start:startDay, end:endDay }, preset:'N' })
+    const setActive=(p)=>{ btnN.classList.toggle('active',p==='N'); btnT.classList.toggle('active',p==='T'); btnP.classList.toggle('active',p==='P') }
+    const btnN=document.getElementById('btnN'), btnT=document.getElementById('btnT'), btnP=document.getElementById('btnP')
+    btnN.onclick=()=>{window.__preset='N'; api.setPreset('N'); setActive('N')}
+    btnT.onclick=()=>{window.__preset='T'; api.setPreset('T'); setActive('T')}
+    btnP.onclick=()=>{window.__preset='P'; api.setPreset('P'); setActive('P')}
+    window.addEventListener('keydown',(e)=>{
+      const tag=(e.target&&e.target.tagName)?e.target.tagName.toLowerCase():''; if(['input','textarea','select'].includes(tag)) return
+      if(e.key.toLowerCase()==='t'){const cur=(window.__preset||'N'); const nxt=(cur==='T')?'N':'T'; window.__preset=nxt; api.setPreset(nxt); setActive(nxt); e.preventDefault()}
+      if(e.key.toLowerCase()==='p'){const cur=(window.__preset||'N'); const nxt=(cur==='P')?'N':'P'; window.__preset=nxt; api.setPreset(nxt); setActive(nxt); e.preventDefault()}
+    })
+  })
+</script>

@@ -51,10 +51,10 @@
     const endD   = new Date(endDay0)
     const offsetToMon = (startD.getDay()+6)%7 // Monday=0
     const offsetToSun = (7-((endD.getDay()+6)%7)-1) // Sunday end
-    const startDay = startDay0 - offsetToMon*dayMs
-    const endDay   = endDay0 + offsetToSun*dayMs
-    const days = []
-    for (let t=startDay; t<=endDay; t+=dayMs) days.push(t)
+    // Use d3.timeDay offsets to be DST-safe
+    const startDay = d3.timeDay.offset(new Date(startDay0), -offsetToMon).getTime()
+    const endDay   = d3.timeDay.offset(new Date(endDay0),   offsetToSun).getTime()
+    const days = d3.timeDay.range(new Date(startDay), d3.timeDay.offset(new Date(endDay), 1)).map(d=>d.getTime())
     const nDays = days.length
     const rows = Math.ceil(nDays / cols)
     const H = M.t + rows*cellH + (rows-1)*gap + M.b
@@ -64,9 +64,12 @@
     const byDay = new Map(days.map(d=>[d, []]))
     for (let i=0;i<values.length;i++){
       const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue
-      const t = time[i]; if (t<startDay || t> endDay + dayMs) continue
-      const d = new Date(t)
-      const ds = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+      const t = time[i]
+      // include data within padded week range [startDay, endDay+1day)
+      const endCutoff = d3.timeDay.offset(new Date(endDay), 1).getTime()
+      if (t < startDay || t >= endCutoff) continue
+      // bucket by local day using d3.timeDay to avoid DST issues
+      const ds = d3.timeDay.floor(new Date(t)).getTime()
       if (!byDay.has(ds)) continue
       byDay.get(ds).push({ t: t - ds, v, a: t })
     }
