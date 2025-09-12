@@ -399,7 +399,7 @@
 </script>
 
 <div class="cgm-widget" style="contain: layout;">
-  <canvas bind:this={canvas} style={`width:100%; display:${showCanvas ? 'block':'none'}; border:0;`}></canvas>
+  <canvas bind:this={canvas} style={`width:100%; display:${showCanvas ? 'block':'none'}; border:0; padding-bottom: 10px;`}></canvas>
   <div id="controlBar" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 6px;">
     <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end; flex:0 0 auto;">
         <button type="button" class="qbtn" on:click={()=>{ showCanvas = !showCanvas }} title="Hide/show calendar canvas">{showCanvas ? '-' : '='}</button>

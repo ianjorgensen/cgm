@@ -4,6 +4,8 @@
   export let data
   export let range = null
   export let preset = 'N'
+  // Optional: draw thin separators between stacked ranges
+  export let showSeparators = false
 
   let time, values
   const dayMs = 24*60*60*1000
@@ -152,13 +154,12 @@
 <div class="widget-container">
   <svg width="{svgWidth}" height="{svgHeight}" viewBox="0 0 {svgWidth} {svgHeight}">    
     
-    <!-- Chart background -->
-    <rect x="40" y="30" width="50" height="180" fill="white" stroke="#ccc" stroke-width="1"/>
-    
-    <!-- Y-axis values -->
-    <text x="35" y="{30 + yAxisPositions.low}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? TH().low.toFixed(1) : TH().low}</text>
-    <text x="35" y="{30 + yAxisPositions.high}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? TH().high.toFixed(1) : TH().high}</text>
-    <text x="35" y="{30 + yAxisPositions.vhigh}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? TH().vhigh.toFixed(1) : TH().vhigh}</text>
+    <!-- Y-axis values (hidden when no data) -->
+    {#if present > 0}
+      <text x="35" y="{30 + yAxisPositions.low}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? TH().low.toFixed(1) : TH().low}</text>
+      <text x="35" y="{30 + yAxisPositions.high}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? TH().high.toFixed(1) : TH().high}</text>
+      <text x="35" y="{30 + yAxisPositions.vhigh}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? TH().vhigh.toFixed(1) : TH().vhigh}</text>
+    {/if}
     
     <!-- Callout lines (rendered first so bars are on top) -->
     <!-- Very High - always connects to fixed top position -->
@@ -177,6 +178,9 @@
     <!-- Very Low - always connects to fixed bottom position -->
     <path d="M 40 {30 + linePositions.vlow} L 65 {30 + linePositions.vlow} L 65 225 Q 65 230 70 230 L {rightX} 230" stroke="#ccc" stroke-width="1" fill="none"/>
     
+    <!-- Chart background -->
+    <rect x="40" y="30" width="50" height="180" fill="white" stroke="#ccc" stroke-width="1"/>
+    
     <!-- Color bars from bottom to top -->
     {#if barHeights.vlow > 0}
       <rect x="40" y="{30 + barPositions.vlow}" width="50" height="{barHeights.vlow}" fill="#e57373"/>
@@ -192,6 +196,22 @@
     {/if}
     {#if barHeights.vhigh > 0}
       <rect x="40" y="{30 + barPositions.vhigh}" width="50" height="{barHeights.vhigh}" fill="#ff8a65"/>
+    {/if}
+
+    <!-- Thin white separators at band boundaries (behind flag) -->
+    {#if showSeparators}
+      {#if barHeights.vlow>2 && barHeights.low>2}
+        <line x1="40" x2="90" y1="{30 + barPositions.vlow}" y2="{30 + barPositions.vlow}" stroke="#fff" stroke-width="1"/>
+      {/if}
+      {#if barHeights.low>2 && barHeights.targ>2}
+        <line x1="40" x2="90" y1="{30 + barPositions.low}" y2="{30 + barPositions.low}" stroke="#fff" stroke-width="1"/>
+      {/if}
+      {#if barHeights.targ>2 && barHeights.high>2}
+        <line x1="40" x2="90" y1="{30 + barPositions.targ}" y2="{30 + barPositions.targ}" stroke="#fff" stroke-width="1"/>
+      {/if}
+      {#if barHeights.high>2 && barHeights.vhigh>2}
+        <line x1="40" x2="90" y1="{30 + barPositions.high}" y2="{30 + barPositions.high}" stroke="#fff" stroke-width="1"/>
+      {/if}
     {/if}
     
     <!-- Range labels and percentages -->

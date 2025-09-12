@@ -36,6 +36,14 @@
     values = Float64Array.from(data.glucose)
   }
 
+  // Display string for the current target range based on preset/units
+  $: targetRangeText = isMmol()
+    ? `${TH().low.toFixed(1)}–${TH().high.toFixed(1)} mmol/L`
+    : `${Math.round(TH().low)}–${Math.round(TH().high)} mg/dL`
+
+  // Human label for current preset
+  $: presetLabel = preset === 'T' ? 'Tight' : (preset === 'P' ? 'Pregnancy' : 'General')
+
   // Re-create series when data changes
   $: if (data) { initSeries() }
 
@@ -86,10 +94,11 @@
 
   <div class="summary" style="padding:0 10px;">
   <!--<div class="metric"><div><b>Time Periods</b></div><div>{periodText} ({daysCount} days)</div></div>-->
-  <div class="metric"><div><b>Average Glucose</b><div class="muted">Goal: {isMmol() ? `Target ${TH().low.toFixed(1)}–${TH().high.toFixed(1)} mmol/L` : `Target ${Math.round(TH().low)}–${Math.round(TH().high)} mg/dL`}</div></div><div>{avgText}</div></div>
-  <div class="metric"><div><b>Glucose Management Indicator (GMI)</b><div class="muted">Goal: &lt;7%</div></div><div>{gmiText}</div></div>
-  <div class="metric"><div><b>Glucose Variability (CV)</b><div class="muted">Goal: ≤36%</div></div><div>{cvText}</div></div>
-  <div class="muted" style="font-size:11px; margin-top:6px; margin-left: 8px;">Time CGM Active: {activeText}%</div>
+  <div class="metric"><div><b>Average Glucose</b><div class="muted"style="font-size:11px;">Goal: {isMmol() ? `Target ${TH().low.toFixed(1)}–${TH().high.toFixed(1)} mmol/L` : `Target ${Math.round(TH().low)}–${Math.round(TH().high)} mg/dL`}</div></div><div>{avgText}</div></div>
+  <div class="metric"><div><b>Glucose Management Indicator (GMI)</b><div class="muted"style="font-size:11px;">Goal: &lt;7%</div></div><div>{gmiText}</div></div>
+  <div class="metric"><div><b>Glucose Variability (CV)</b><div class="muted" style="font-size:11px;">Goal: ≤36%</div></div><div>{cvText}</div></div>
+  <div class="metric"><div><b>Target Range</b><div class="muted" style="font-size:11px;">{presetLabel}</div></div><div style="font-weight: normal;">{targetRangeText}</div></div>
+  <div class="muted" style="font-size:11px; margin-top:6px; margin-left: 8px;">Time CGM Active: {activeText}</div>
 </div>
 
 <style>

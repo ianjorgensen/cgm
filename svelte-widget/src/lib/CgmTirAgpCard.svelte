@@ -4,6 +4,8 @@
   export let data
   export let range = null // { start, end } in ms
   export let preset = 'N'
+  // Optional: draw thin separators between stacked ranges
+  export let showSeparators = false
 
   // Derived series
   let time, values
@@ -76,6 +78,17 @@
   const combineTop = ()=> Math.round(pct.high + pct.vhigh)
   const combineLow = ()=> Math.round(pct.low + pct.vlow)
   const unitValue = (v)=> isMmol() ? (Math.round(v*10)/10).toString() : Math.round(v).toString()
+
+  // Separator visibility: avoid when the adjacent band is too thin
+  const STACK_H = 260
+  const SEP_MIN_PX = 3
+  const SEP_MIN_PCT = (SEP_MIN_PX / STACK_H) * 100
+  $: sepShow = {
+    vlowLow: pct.vlow>0 && pct.low>0 && Math.min(pct.vlow, pct.low) >= SEP_MIN_PCT,
+    lowTarg: pct.low>0 && pct.targ>0 && Math.min(pct.low, pct.targ) >= SEP_MIN_PCT,
+    targHigh: pct.targ>0 && pct.high>0 && Math.min(pct.targ, pct.high) >= SEP_MIN_PCT,
+    highVhigh: pct.high>0 && pct.vhigh>0 && Math.min(pct.high, pct.vhigh) >= SEP_MIN_PCT,
+  }
 </script>
 
 <div class="agp-card">
@@ -87,6 +100,14 @@
       <div class="seg targ"  style="flex-basis:{pct.targ}%"></div>
       <div class="seg low"   style="flex-basis:{pct.low}%"></div>
       <div class="seg vlow"  style="flex-basis:{pct.vlow}%"></div>
+      {#if showSeparators}
+        <div class="seps">
+          {#if sepShow.vlowLow}<div class="sep" style="top:{100 - pct.vlow}%"></div>{/if}
+          {#if sepShow.lowTarg}<div class="sep" style="top:{100 - (pct.vlow + pct.low)}%"></div>{/if}
+          {#if sepShow.targHigh}<div class="sep" style="top:{100 - (pct.vlow + pct.low + pct.targ)}%"></div>{/if}
+          {#if sepShow.highVhigh}<div class="sep" style="top:{100 - (pct.vlow + pct.low + pct.targ + pct.high)}%"></div>{/if}
+        </div>
+      {/if}
     </div>
     <div class="ticks">
       <div class="tick" style="top:18%"><span>{unitValue(TH().high)}</span></div>
@@ -127,8 +148,10 @@
 <style>
   .agp-card { display:flex; gap:18px; align-items:flex-start; border-radius:10px; }
   .barcol { position:relative; width:90px; }
-  .stack { width:70px; height:260px; border-radius:4px; overflow:hidden; border:1px solid #ddd; margin-left:10px; }
+  .stack { width:70px; height:260px; border-radius:4px; overflow:hidden; border:1px solid #ddd; margin-left:10px; position:relative; }
   .seg { width:100%; }
+  .stack .seps { position:absolute; left:10px; /* align with .stack left */ top:0; bottom:0; width:70px; pointer-events:none; }
+  .stack .sep { position:absolute; left:0; right:0; height:1px; background:rgba(255,255,255,0.9); }
   .seg.vhigh{ background: var(--vh, #e47c2f); }
   .seg.high { background: var(--h,  #f1aa3b); }
   .seg.targ { background: var(--t,  #169b58); }

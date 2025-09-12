@@ -61,7 +61,7 @@
         p95: quantileSorted(a, 0.95),
       }
     })
-    return { series, samplesPerDay }
+    return { series, samplesPerDay, dayCount: days.size }
   }
 
   function draw(){
@@ -77,7 +77,7 @@
     const i1 = Math.min(values.length-1, Math.floor((range.end - time[0]) / data.stepMs))
     if (i1 < i0) return
 
-    const { series, samplesPerDay } = computeSeries(i0, i1)
+    const { series, samplesPerDay, dayCount } = computeSeries(i0, i1)
     const ys = series.flatMap(s=>[s.p05, s.p95]).filter(Number.isFinite)
     if (!ys.length){
       root.append('text').attr('x',M.l).attr('y',H/2).text('Not enough data in selection to compute AGP');
@@ -183,14 +183,17 @@
 
     // Right-side percentile labels 5,25,50,75,95 at last defined positions
     try {
-      const lastOf = key => { for (let i=series.length-1;i>=0;i--){ const v=series[i][key]; if (Number.isFinite(v)) return {t:series[i].t, v}; } return null }
-      const pad = 41
-      const place = (pct, p)=>{ if (!p) return; const xP=Math.min(W-M.r-2, x(p.t)+pad); const yP=y(p.v); d3.select(svg).append('text').attr('x', xP+5).attr('y', yP).attr('dy','0.35em').attr('text-anchor','start').attr('fill','#000').attr('font-size',11).attr('font-weight', pct===50?700:400).text(`${pct}%`) }
-      place(5,  lastOf('p05'))
-      place(25, lastOf('p25'))
-      place(50, lastOf('p50'))
-      place(75, lastOf('p75'))
-      place(95, lastOf('p95'))
+      // Show right-side percentile labels only when >2 days of data
+      if (dayCount && dayCount > 2){
+        const lastOf = key => { for (let i=series.length-1;i>=0;i--){ const v=series[i][key]; if (Number.isFinite(v)) return {t:series[i].t, v}; } return null }
+        const pad = 41
+        const place = (pct, p)=>{ if (!p) return; const xP=Math.min(W-M.r-2, x(p.t)+pad); const yP=y(p.v); d3.select(svg).append('text').attr('x', xP+5).attr('y', yP).attr('dy','0.35em').attr('text-anchor','start').attr('fill','#000').attr('font-size',11).attr('font-weight', pct===50?700:400).text(`${pct}%`) }
+        place(5,  lastOf('p05'))
+        place(25, lastOf('p25'))
+        place(50, lastOf('p50'))
+        place(75, lastOf('p75'))
+        place(95, lastOf('p95'))
+      }
     } catch {}
 
     // Green target range pill labels at left for low/high

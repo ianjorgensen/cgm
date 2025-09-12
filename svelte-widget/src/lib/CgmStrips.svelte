@@ -5,6 +5,9 @@
   export let data
   export let range = null // { start, end } in ms
   export let preset = 'N' // 'N','T','P'
+  // Optional: color lines/fills across the entire padded week window.
+  // Default is false so non-selected areas are greyed out.
+  export let colorWholeWeek = false
 
   let svg
 
@@ -54,6 +57,7 @@
     // Use d3.timeDay offsets to be DST-safe
     const startDay = d3.timeDay.offset(new Date(startDay0), -offsetToMon).getTime()
     const endDay   = d3.timeDay.offset(new Date(endDay0),   offsetToSun).getTime()
+    const endCutoff = d3.timeDay.offset(new Date(endDay), 1).getTime()
     const days = d3.timeDay.range(new Date(startDay), d3.timeDay.offset(new Date(endDay), 1)).map(d=>d.getTime())
     const nDays = days.length
     const rows = Math.ceil(nDays / cols)
@@ -66,7 +70,6 @@
       const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue
       const t = time[i]
       // include data within padded week range [startDay, endDay+1day)
-      const endCutoff = d3.timeDay.offset(new Date(endDay), 1).getTime()
       if (t < startDay || t >= endCutoff) continue
       // bucket by local day using d3.timeDay to avoid DST issues
       const ds = d3.timeDay.floor(new Date(t)).getTime()
@@ -108,6 +111,7 @@
     }
 
     // draw each cell (day)
+    const today = d3.timeDay.floor(new Date()).getTime()
     days.forEach((ds, idx)=>{
       const r = Math.floor(idx / cols)
       const c = idx % cols
@@ -117,13 +121,16 @@
       const x = d3.scaleLinear().domain([0, 24*perHr - 1]).range([0, cw])
       const y = d3.scaleLinear().domain(isMmol()? [0, 20]: [0, 360]).range([cellH-innerT, 0])
 
-      // background band and threshold lines (match play.html)
-      g.append('rect')
-        .attr('x',0).attr('y',y(th.high))
-        .attr('width',cw).attr('height',Math.max(1,y(th.low)-y(th.high)))
-        .attr('fill','#efefef')
-      g.append('line').attr('x1',0).attr('x2',cw).attr('y1',y(th.high)).attr('y2',y(th.high)).attr('stroke','#2e7d32').attr('opacity',0.7)
-      g.append('line').attr('x1',0).attr('x2',cw).attr('y1',y(th.low)).attr('y2',y(th.low)).attr('stroke','#2e7d32').attr('opacity',0.7)
+      const isFuture = ds > today
+      if (!isFuture){
+        // background band and threshold lines (match play.html)
+        g.append('rect')
+          .attr('x',0).attr('y',y(th.high))
+          .attr('width',cw).attr('height',Math.max(1,y(th.low)-y(th.high)))
+          .attr('fill','#efefef')
+        g.append('line').attr('x1',0).attr('x2',cw).attr('y1',y(th.high)).attr('y2',y(th.high)).attr('stroke','#2e7d32').attr('opacity',0.7)
+        g.append('line').attr('x1',0).attr('x2',cw).attr('y1',y(th.low)).attr('y2',y(th.low)).attr('stroke','#2e7d32').attr('opacity',0.7)
+      }
 
       // Sort series and split by gaps > 2 readings (do not join across gaps)
       const raw = (byDay.get(ds) || []).slice().sort((a,b)=>a.t-b.t)
@@ -137,13 +144,15 @@
       if (cur.length) segs.push(cur)
 
       // orange area above target (per segment)
-      const inside = (d)=> d.a>=sel0 && d.a<=sel1
+      const vizStart = colorWholeWeek ? startDay : sel0
+      const vizEnd   = colorWholeWeek ? (endCutoff - 1) : sel1
+      const inside = (d)=> d.a>=vizStart && d.a<=vizEnd
       const areaAbove = d3.area()
         .defined(d=>Number.isFinite(d.v) && d.v>th.high && inside(d))
         .x(d=>x(d.t/data.stepMs))
         .y0(d=>y(th.high))
         .y1(d=>y(d.v))
-      segs.forEach(seg=>{ if (seg.length>1) g.append('path').attr('d', areaAbove(seg)).attr('fill','#fdae61').attr('opacity',0.35) })
+      if (!isFuture) segs.forEach(seg=>{ if (seg.length>1) g.append('path').attr('d', areaAbove(seg)).attr('fill','#fdae61').attr('opacity',0.35) })
 
       // red area below target
       const areaBelow = d3.area()
@@ -151,7 +160,7 @@
         .x(d=>x(d.t/data.stepMs))
         .y0(d=>y(d.v))
         .y1(d=>y(th.low))
-      segs.forEach(seg=>{ if (seg.length>1) g.append('path').attr('d', areaBelow(seg)).attr('fill','#d73027').attr('opacity',0.25) })
+      if (!isFuture) segs.forEach(seg=>{ if (seg.length>1) g.append('path').attr('d', areaBelow(seg)).attr('fill','#d73027').attr('opacity',0.25) })
 
       // glucose line colored by band (below=red, in=green, above=orange) per contiguous segment
       const lineAll = d3.line().x(d=>x(d.t/data.stepMs)).y(d=>y(d.v)).curve(d3.curveMonotoneX)
@@ -162,16 +171,18 @@
       const lineIn   = mk(inDef,'#1a9850')
       const lineLow  = mk(lowDef,'#d73027')
       const lineHigh = mk(highDef,'#fdae61')
-      segs.forEach(seg=>{
-        if (seg.length>1){
-          // outside selection: grey context
-          const lineGrey = d3.line().defined(d=>Number.isFinite(d.v) && !inside(d)).x(d=>x(d.t/data.stepMs)).y(d=>y(d.v)).curve(d3.curveMonotoneX)
-          g.append('path').attr('d', lineGrey(seg)).attr('stroke','#c7c7c7').attr('fill','none').attr('stroke-width',1.2).attr('opacity',0.8)
-          g.append('path').attr('d', lineLow(seg)).attr('stroke','#d73027').attr('fill','none').attr('stroke-width',1.5)
-          g.append('path').attr('d', lineHigh(seg)).attr('stroke','#fdae61').attr('fill','none').attr('stroke-width',1.5)
-          g.append('path').attr('d', lineIn(seg)).attr('stroke','#1a9850').attr('fill','none').attr('stroke-width',1.5)
-        }
-      })
+      if (!isFuture) {
+        segs.forEach(seg=>{
+          if (seg.length>1){
+            // outside selection: grey context
+            const lineGrey = d3.line().defined(d=>Number.isFinite(d.v) && !inside(d)).x(d=>x(d.t/data.stepMs)).y(d=>y(d.v)).curve(d3.curveMonotoneX)
+            g.append('path').attr('d', lineGrey(seg)).attr('stroke','#c7c7c7').attr('fill','none').attr('stroke-width',1.2).attr('opacity',0.8)
+            g.append('path').attr('d', lineLow(seg)).attr('stroke','#d73027').attr('fill','none').attr('stroke-width',1.5)
+            g.append('path').attr('d', lineHigh(seg)).attr('stroke','#fdae61').attr('fill','none').attr('stroke-width',1.5)
+            g.append('path').attr('d', lineIn(seg)).attr('stroke','#1a9850').attr('fill','none').attr('stroke-width',1.5)
+          }
+        })
+      }
 
       // date number on top-left and 12pm label centered
       const dObj = new Date(ds)
@@ -179,9 +190,11 @@
       const showMonth = dayNum===1
       const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
       const dateLabel = showMonth ? `1 ${monthNames[dObj.getMonth()]}` : String(dayNum)
-      g.append('text').attr('x', -12).attr('y', -8).attr('fill','#777').attr('font-size',10).attr('text-anchor','start').text(dateLabel)
-      if (r < rows - 1){
-        g.append('text').attr('x', cw/2).attr('y', cellH-2).attr('text-anchor','middle').attr('fill','#777').attr('font-size',10).text('12pm')
+      if (!isFuture){
+        g.append('text').attr('x', -12).attr('y', -8).attr('fill','#777').attr('font-size',10).attr('text-anchor','start').text(dateLabel)
+        if (r < rows - 1){
+          g.append('text').attr('x', cw/2).attr('y', cellH-2).attr('text-anchor','middle').attr('fill','#777').attr('font-size',10).text('12pm')
+        }
       }
     })
   }

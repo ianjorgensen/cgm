@@ -52,8 +52,8 @@
     //const tirclaude = makeClaude ? makeClaude('tirclaude', data, { source: calendar, preset: 'N' }) : null
     //const tircard = window.createCgmTirCard('tircard', data, { source: calendar, preset: 'N' })
     //const tiragpcard = window.createCgmTirAgpCard('tiragpcard', data, { source: calendar, preset: 'N' })
-    const tirdetailed = window.createCgmTirDetailed('tirdetailed', data, { source: calendar, preset: 'N' })
-    const strips  = window.createCgmStrips('strips', data, { source: calendar, preset: 'N' })
+    const tirdetailed = window.createCgmTirDetailed('tirdetailed', data, { source: calendar, preset: 'N', showSeparators: false })
+    const strips  = window.createCgmStrips('strips', data, { source: calendar, preset: 'N', colorWholeWeek: false  })
     const agp     = window.createCgmAgp('agp', data, { source: calendar, preset: 'N' })
 
     window.addEventListener('keydown', (e)=>{
