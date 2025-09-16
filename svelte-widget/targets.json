@@ -1,0 +1,69 @@
+{
+  "general": {
+    "label": "General",
+    "thresholds": {
+      "mg": { "veryLow": 54, "low": 70, "high": 180, "veryHigh": 250 },
+      "mmol": { "veryLow": 3, "low": 3.9, "high": 10.0, "veryHigh": 13.9 }
+    },
+    "percentGoals": {
+      "inRange": "≥70%" ,
+      "high":  "≤25%",
+      "veryHigh": "≤5%",
+      "low": "≤4%",
+      "veryLow": "≤1%"
+    },
+    "metricsGoals": {
+      "averageGlucose": {
+        "mg": "<154 mg/dL",
+        "mmol": "<8.6 mmol/L" 
+      },
+      "gmi": "<7%" ,
+      "cv": "≤36%" 
+    }
+  },
+  "tight": {
+    "label": "Tight",
+    "thresholds": {
+      "mg": { "veryLow": 54, "low": 70, "high": 140, "veryHigh": 250 },
+      "mmol": { "veryLow": 3, "low": 3.9, "high": 7.8, "veryHigh": 13.9 }
+    },
+    "percentGoals": {
+      "inRange": "≥50%" ,
+      "high":  "≤45%",
+      "veryHigh": "≤5%",
+      "low": "≤4%",
+      "veryLow": "≤1%"
+    },
+    "metricsGoals": {
+      "averageGlucose": {
+        "mg": "<140 mg/dL",
+        "mmol": "<7.8 mmol/L" 
+      },
+      "gmi": "6.5–7%" ,
+      "cv": "≤36%" 
+    }
+  },
+  "pregnancy": {
+    "label": "Pregnancy",
+    "thresholds": {
+      "mg": { "veryLow": 54, "low": 63, "high": 140, "veryHigh": 250 },
+      "mmol": { "veryLow": 3, "low": 3.5, "high": 7.8, "veryHigh": 13.9 }
+    },
+    "percentGoals": {
+      "inRange": "≥70%" ,
+      "high":  "≤25%",
+      "veryHigh": "-",
+      "low": "≤4%",
+      "veryLow": "≤1%"
+    },
+    "metricsGoals": {
+      "averageGlucose": {
+        "mg": "<121 mg/dL",
+        "mmol": "<6.7 mmol/L" 
+      },
+      "gmi": "6.0–6.2%" ,
+      "cv": "≤36%" 
+    }
+  }
+}
+

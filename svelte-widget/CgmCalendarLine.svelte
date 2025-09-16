@@ -1,56 +1,28 @@
 <script>
   import { onMount, createEventDispatcher } from 'svelte'
   import * as d3 from 'd3'
-  import targets from '../../targets.json'
 
   export let data
   export let initialRange = null
   // Optional external controller can drive the selection in real-time
   export let externalRange = null
-  export let preset = 'general'
+  export let preset = 'N'
   // Optional month labels under the calendar rows
   export let showMonthLabels = true
   // Toggle to hide/show the calendar data (bars + selection overlay)
   export let showData = true
   // Toggle to show/hide the entire canvas area
   export let showCanvas = true
-  // Selection styling
-  export let selectionStroke = '#111'
-  export let selectionFill = 'transparent'
 
   const dispatch = createEventDispatcher()
 
   let canvas
   let periodTextEl
-  let host
 
   // Layout constants
   const M = { l: 48, r: 12, t: 8, b: 8 }
   const rowH = 54
-  const ALLOWED_SPANS = [1,7,14,21,30,90]
-
-  // Theme
-  let theme = {
-    bg: '#fff', grid: '#f0f0f0', text: '#111', muted: '#555',
-    selFill: 'transparent', selStroke: '#111',
-    vlow: '#e57373', low: '#ff9e80', inrange: '#86c89d', high: '#ffcc80', vhigh: '#ff8a65'
-  }
-  function cssVar(name, def){ try{ const v=(getComputedStyle(host).getPropertyValue(name)||'').trim(); return v||def }catch{return def} }
-  function readTheme(){
-    theme = {
-      bg: cssVar('--cgm-bg', theme.bg),
-      grid: cssVar('--cgm-grid', theme.grid),
-      text: cssVar('--cgm-text', theme.text),
-      muted: cssVar('--cgm-muted', theme.muted),
-      selFill: cssVar('--cgm-selection-fill', theme.selFill),
-      selStroke: cssVar('--cgm-selection-stroke', theme.selStroke),
-      vlow: cssVar('--cgm-very-low', theme.vlow),
-      low: cssVar('--cgm-low', theme.low),
-      inrange: cssVar('--cgm-in-range', theme.inrange),
-      high: cssVar('--cgm-high', theme.high),
-      vhigh: cssVar('--cgm-very-high', theme.vhigh)
-    }
-  }
+  const ALLOWED_SPANS = [1,3,7,14,30,90]
 
   // Derived series
   let time
@@ -58,8 +30,17 @@
   let dayMs = 24*60*60*1000
   const tStart = () => new Date(data.t0).getTime()
   const isMmol = ()=> /mmol/i.test(data?.units || 'mmol')
-  const unitKey = ()=> isMmol() ? 'mmol' : 'mg'
-  function TH(){ return targets[preset].thresholds[unitKey()] }
+  function TH(){
+    if (isMmol()){
+      if (preset==='T') return { vlow:3.0, low:3.9, high:7.8, vhigh:13.9 }
+      if (preset==='P') return { vlow:3.0, low:3.5, high:7.8, vhigh:13.9 }
+      return { vlow:3.0, low:3.9, high:10.0, vhigh:13.9 }
+    } else {
+      if (preset==='T') return { vlow:54, low:70, high:140, vhigh:250 }
+      if (preset==='P') return { vlow:54, low:63, high:140, vhigh:250 }
+      return { vlow:54, low:70, high:180, vhigh:250 }
+    }
+  }
 
   // Ranges & domain
   let firstAll = 0, lastAll = 0
@@ -89,7 +70,7 @@
       if (!r){ r = {valid:0, vl:0, l:0, t:0, h:0, vh:0}; byDay.set(ds, r) }
       r.valid++
       const th = TH()
-      if (v < th.veryLow) r.vl++; else if (v < th.low) r.l++; else if (v <= th.high) r.t++; else if (v <= th.veryHigh) r.h++; else r.vh++
+      if (v < th.vlow) r.vl++; else if (v < th.low) r.l++; else if (v <= th.high) r.t++; else if (v <= th.vhigh) r.h++; else r.vh++
     }
   }
 
@@ -119,11 +100,11 @@
     canvas.height = Math.floor(cssH * DPR)
     ctx.setTransform(DPR,0,0,DPR,0,0)
     ctx.clearRect(0,0,cssW,cssH)
-    ctx.fillStyle = theme.bg; ctx.fillRect(0,0,cssW,cssH)
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,cssW,cssH)
     const plotW = cssW - M.l - M.r
 
     // month grid
-    ctx.strokeStyle = theme.grid; ctx.lineWidth = 1
+    ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1
     years.forEach((yr, idx)=>{
       const yTop = M.t + idx*rowH
       for (let m=1;m<12;m++){
@@ -147,7 +128,7 @@
       const H = rowH - 10; const yBase = yTop + 5
       if (!showData){
         // draw empty placeholders only
-        ctx.fillStyle= cssVar('--cgm-target-band-bg', '#efefef');
+        ctx.fillStyle='#efefef';
         for (let t = Math.max(startY, firstAll); t <= Math.min(endY, lastAll); t += dayMs){
           const x0 = xScale(t), x1 = xScale(t + dayMs), w = Math.max(1, x1 - x0)
           ctx.fillRect(x0, yBase, w, H)
@@ -157,18 +138,18 @@
       for (let t = Math.max(startY, firstAll); t <= Math.min(endY, lastAll); t += dayMs){
         const x0 = xScale(t), x1 = xScale(t + dayMs), w = Math.max(1, x1 - x0)
         const r = byDay.get(t)
-        if (!r || !r.valid){ ctx.fillStyle=cssVar('--cgm-target-band-bg', '#efefef'); ctx.globalAlpha=1; ctx.fillRect(x0,yBase,w,H); continue }
+        if (!r || !r.valid){ ctx.fillStyle='#efefef'; ctx.globalAlpha=1; ctx.fillRect(x0,yBase,w,H); continue }
         const samplesPerDay = Math.max(1, Math.round(dayMs/data.stepMs))
         const frac = { vl:r.vl/r.valid, l:r.l/r.valid, t:r.t/r.valid, h:r.h/r.valid, vh:r.vh/r.valid }
         let yb = yBase + H
         const seg=(color, f, a)=>{ const h=Math.round(f*H); if(h<=0) return; yb-=h; ctx.fillStyle=color; ctx.globalAlpha=a; ctx.fillRect(x0,yb,w,h) }
         const alphaBase = (r.valid / samplesPerDay) >= 0.5 ? 0.8 : 0.4
         const alphaT = (r.valid / samplesPerDay) >= 0.5 ? 0.9 : 0.6
-        seg(theme.vlow, frac.vl, alphaBase)
-        seg(theme.low, frac.l, alphaBase)
-        seg(theme.inrange, frac.t, alphaT)
-        seg(theme.high, frac.h, alphaBase)
-        seg(theme.vhigh, frac.vh, alphaBase)
+        seg('#e57373', frac.vl, alphaBase)
+        seg('#ff9e80', frac.l, alphaBase)
+        seg('#86c89d', frac.t, alphaT)
+        seg('#ffcc80', frac.h, alphaBase)
+        seg('#ff8a65', frac.vh, alphaBase)
         ctx.globalAlpha=1
       }
     })
@@ -185,12 +166,8 @@
         const xScale = (t)=> M.l + Math.floor(((t - Date.UTC(yr,0,1)) / dayMs) * (plotW / daysInYear))
         const xA = xScale(a), xB = xScale(b + 1)
         const yBase = yTop + 5, H = rowH - 10
-        ctx.save();
-        if (selectionFill && selectionFill !== 'none' && selectionFill !== 'transparent'){
-          ctx.fillStyle = selectionFill; ctx.fillRect(xA, yBase, Math.max(1, xB-xA), H)
-        }
-      const selStroke = (selectionStroke && selectionStroke !== '#111') ? selectionStroke : theme.selStroke
-      ctx.strokeStyle = selStroke; ctx.lineWidth=1.5
+        ctx.save(); ctx.fillStyle='rgba(107,127,161,0.28)'; ctx.fillRect(xA, yBase, Math.max(1, xB-xA), H)
+        ctx.strokeStyle='#6b7fa1'; ctx.lineWidth=1.5
         ctx.beginPath(); ctx.moveTo(xA+0.5,yBase+0.5); ctx.lineTo(xA+0.5,yBase+H-0.5); ctx.stroke()
         ctx.beginPath(); ctx.moveTo(xB-0.5,yBase+0.5); ctx.lineTo(xB-0.5,yBase+H-0.5); ctx.stroke(); ctx.restore()
       })
@@ -208,7 +185,7 @@
       const yAxis = yLastTop + rowH - 5 + 0.5 // bottom of last row plot area
       ctx.save()
       ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1
-      ctx.fillStyle = theme.muted; ctx.font = '11px var(--cgm-font, system-ui, sans-serif)'; ctx.textAlign='center'; ctx.textBaseline='top'
+      ctx.fillStyle = '#555'; ctx.font = '11px system-ui, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top'
       for (let m=0; m<12; m++){
         const t = Date.UTC(lastYr, m, 1)
         const xp = xScale(t)
@@ -240,13 +217,12 @@
     if (externalRange && typeof externalRange.start === 'number' && typeof externalRange.end === 'number') {
       const s = externalRange.start, e = externalRange.end
       if (s !== viewStart || e !== viewEnd) {
-        viewStart = s; viewEnd = e; if (time && values) { emitRange(); draw() }
+        viewStart = s; viewEnd = e; emitRange(); draw()
       }
     }
   }
 
   function emitRange(){
-    if (!time || !values) return
     const days = spanDays()
     // keep quick-span highlight in sync with current selection
     activeSpan = nearestAllowed(days)
@@ -269,16 +245,8 @@
   }
 
   function setSpan(days){
-    // Resize selection length keeping the current end anchored when possible
-    const day = dayMs
-    let end = Math.max(firstAll + day - 1, Math.min(lastAll, viewEnd))
-    let start = end - days*day + 1
-    if (start < firstAll){
-      start = firstAll
-      end = Math.min(lastAll, start + days*day - 1)
-    }
-    viewStart = start
-    viewEnd = end
+    viewEnd = lastAll
+    viewStart = Math.max(firstAll, viewEnd - days*dayMs + 1)
     emitRange(); draw()
   }
 
@@ -393,7 +361,7 @@
   $: if (values && preset){ aggregate(); draw() }
 
   onMount(()=>{
-    ctx = canvas.getContext('2d'); readTheme()
+    ctx = canvas.getContext('2d')
     initSeries(); draw();
     // Emit initial ready with both ms and index info
     const i0 = Math.max(0, Math.ceil((viewStart - time[0]) / data.stepMs))
@@ -408,7 +376,7 @@
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.defaultPrevented) return
       // Number keys → quick spans (1,3,7,14,30,90)
       if (/^[1-6]$/.test(e.key)){
-        const map = { '1':1, '2':7, '3':14, '4':21, '5':30, '6':90 }
+        const map = { '1':1, '2':3, '3':7, '4':14, '5':30, '6':90 }
         const days = map[e.key]
         setSpan(days)
         e.preventDefault(); return
@@ -426,13 +394,13 @@
     }
     window.addEventListener('resize', onResize)
     window.addEventListener('keydown', onKey)
-    return ()=> { window.removeEventListener('resize', onResize); window.removeEventListener('keydown', onKey) }
+    return ()=> window.removeEventListener('resize', onResize)
   })
 </script>
 
-<div class="cgm-widget" bind:this={host} style="contain: layout;">
+<div class="cgm-widget" style="contain: layout;">
   <canvas bind:this={canvas} style={`width:100%; display:${showCanvas ? 'block':'none'}; border:0; padding-bottom: 10px;`}></canvas>
-  <div id="controlBar" style="display:none; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 6px;">
+  <div id="controlBar" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 6px;">
     <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end; flex:0 0 auto;">
         <button type="button" class="qbtn" on:click={()=>{ showCanvas = !showCanvas }} title="Hide/show calendar canvas">{showCanvas ? '-' : '='}</button>
     </div>

@@ -1,0 +1,53 @@
+{
+  "metrics": [
+    {
+      "id": "tir",
+      "name": "Time in Range (TIR)",
+      "definition_mg_dL": "70–180",
+      "goals": { "general": ">70%", "tight": null, "pregnancy": null }
+    },
+    {
+      "id": "titr",
+      "name": "Time in Tight Range (TITR)",
+      "definition_mg_dL": "70–140",
+      "goals": { "general": null, "tight": ">50%", "pregnancy": null }
+    },
+    {
+      "id": "pregnancy_tir",
+      "name": "Pregnancy TIR",
+      "definition_mg_dL": "63–140",
+      "goals": { "general": null, "tight": null, "pregnancy": ">70%" }
+    },
+    {
+      "id": "tbr",
+      "name": "Time Below Range (TBR)",
+      "definition_mg_dL": "<70",
+      "goals": { "general": "<4%", "tight": "<4%", "pregnancy": "<4%" }
+    },
+    {
+      "id": "tvl",
+      "name": "Time Very Low",
+      "definition_mg_dL": "<54",
+      "goals": { "general": "<1%", "tight": "<1%", "pregnancy": "<1%" }
+    },
+    {
+      "id": "tar",
+      "name": "Time Above Range (TAR)",
+      "definition_mg_dL": ">180",
+      "goals": { "general": "<25%", "tight": "<25%", "pregnancy": null }
+    },
+    {
+      "id": "pregnancy_tar",
+      "name": "Pregnancy TAR",
+      "definition_mg_dL": ">140",
+      "goals": { "general": null, "tight": null, "pregnancy": "<25%" }
+    },
+    {
+      "id": "tvh",
+      "name": "Time Very High",
+      "definition_mg_dL": ">250",
+      "goals": { "general": "<5%", "tight": "<5%", "pregnancy": "—" }
+    }
+  ]
+}
+

@@ -1,78 +1,187 @@
 <!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Demo All Widgets</title>
+<title>Ripple</title>
 <style>
   body { font: 12px system-ui, sans-serif; margin: 0; padding: 20px; }
-  .wrap { max-width: 900px; margin: 0 auto; padding: 0 20px; }
-  #viz { margin-bottom: 20px; }
-  .row { display:flex; gap:20px; align-items:flex-start; margin-bottom: 20px; }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 0 20px; }
+  #viz { width: 725px; margin: 0 32px; margin-bottom: 20px }
+  .row { display:flex; gap:20px; align-items:flex-start; margin-bottom: 10px; }
   .row > div { flex:1 1 0; min-width:0; }
-  #agp, #strips { margin-top: 20px; }
-  /* Fix strips width to 840px in demo */
-  #strips { width: 840px; margin-top: 30px; }
-  #tirdetailed {padding-left: 10px }
-  #summary {padding-right: 50px }
-  #controlBar {padding: 0 50px}
+  #agp, #strips { margin-top: 10px; }
+  /* Strips adapts to container */
+  #strips {     width: 688px;
+    margin-top: 20px;
+    margin-left: 51px; }
+  #tirdetailed {padding-left: 11px }
+  #summary {padding-right: 45px }
+  #controlBar {padding: 0px}
+
+  /* Shortcuts modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 9999; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: #fff; width: min(800px, 92vw); max-height: 84vh; overflow: auto; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+  .modal header { padding: 14px 18px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content: space-between; }
+  .modal header h3 { margin: 0; font-size: 16px; }
+  .modal .content { padding: 14px 18px; }
+  .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; background:#f3f3f3; border:1px solid #e1e1e1; padding:2px 6px; border-radius:6px; }
+  .shortcuts-grid { display:grid; grid-template-columns: 1fr 2fr; gap: 10px 16px; align-items:center; }
+  .modal footer { padding:12px 18px; border-top:1px solid #eee; display:flex; justify-content:flex-end; }
+  .btn { padding:6px 12px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+  .btn:hover { background:#f7f7f7; }
+  .kbd-fab { position: fixed; right: 16px; bottom: 0px; background: transparent; border: 0; box-shadow: none; padding: 0; cursor: pointer; z-index: 10000; opacity: 0.7; color: #555; font-size: 42px; line-height: 1; }
+  .kbd-fab:hover { opacity: 1; }
+
+  /* Theming palettes */
+  .cgm-theme {
+    --cgm-font: Inter, system-ui, sans-serif;
+    --cgm-bg: #ffffff; --cgm-border: #e5e5e5; --cgm-grid: #eeeeee;
+    --cgm-text: #111111; --cgm-muted: #666666;
+    --cgm-selection-fill: rgba(0,0,0,0.10); --cgm-selection-stroke: #111111;
+    --cgm-very-low: #e57373; --cgm-low: #ff9e80; --cgm-in-range: #86c89d;
+    --cgm-high: #ffcc80; --cgm-very-high: #ff8a65;
+    --cgm-low-strong: #d73027; --cgm-very-high-strong: #f46d43; --cgm-threshold: #2e7d32;
+    --cgm-target-band-bg: #efefef; --cgm-context: #c7c7c7; --cgm-arrow: gray;
+    --cgm-outside-light: #ededed; --cgm-outside-mid: #c4c4c4; --cgm-outside-dark: #b5b5b5;
+  }
+  .cgm-theme.cgm-dark {
+    --cgm-bg: #0f1116; --cgm-border: #1f2430; --cgm-grid: #1b202b;
+    --cgm-text: #e6e6e6; --cgm-muted: #9aa3b2;
+    --cgm-selection-fill: rgba(255,255,255,0.07); --cgm-selection-stroke: #e6e6e6;
+    --cgm-very-low: #ff7a7a; --cgm-low: #ffb199; --cgm-in-range: #7fd3a3;
+    --cgm-high: #ffd591; --cgm-very-high: #ffa07a;
+    --cgm-low-strong: #ff5a4d; --cgm-very-high-strong: #ff7a4d; --cgm-threshold: #79c28a;
+    --cgm-target-band-bg: #1a1f2a; --cgm-context: #4a4f5c; --cgm-arrow: #80869a;
+    --cgm-outside-light: #2a2f3a; --cgm-outside-mid: #3a3f4a; --cgm-outside-dark: #4a4f5a;
+  }
+  /* Button removed; theme toggled via keyboard (D) */
 </style>
 
-<div class="wrap">
-  <div id="viz"></div>
-  <div class="row" id="rowST">
-    <div id="tirdetailed"></div>
-    <div id="summary"></div>
-    <!--
-    <div id="tirbar"></div>
-    <div id="tircard"></div>
-    <div id="tiragpcard"></div>
-    -->
+<body id="themeRoot" class="cgm-theme">
+  <div class="wrap">
+    <div id="viz"></div>
+    <div class="row" id="rowST">
+      <div id="tirdetailed"></div>
+      <div id="summary"></div>
+    </div>
+    <div id="agp"></div>
+    <div id="strips"></div>
   </div>
-  <div id="agp"></div>
-  <div id="strips"></div>
-</div>
+</body>
 
 <link rel="stylesheet" href="../dist/lib/style.css" />
 <script src="../dist/lib/cgm-tir.umd.js"></script>
 <script>
   // Combined demo: TIR calendar + Summary synced to the selection
   fetch('../../cgm-data/cgm_data.json').then(r=>r.json()).then(data => {
-    // Range presets JSON (for docs; widgets use internal mapping)
-    const PRESETS = { N:'General', T:'Tight', P:'Pregnancy' }
+    // Theme control (keyboard only: D toggles dark)
+    const themeRoot = document.getElementById('themeRoot')
+    let __dark = false
+    const applyTheme = ()=>{ themeRoot.classList.toggle('cgm-dark', __dark); try{ window.dispatchEvent(new Event('resize')) }catch{} }
+    
     const DAY = 24*60*60*1000
     const t0 = new Date(data.t0).getTime()
     const tEnd = t0 + data.stepMs * (data.glucose.length - 1)
     const endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
     const startDay = Math.max(t0, endDay - 14*DAY + 1) // default: last 14 days
-
-    const calendar = window.createTirCalendar('viz', data, { initialRange: { start: startDay, end: endDay }, preset: 'N', canvasVisible: false })
+    //we want this { start: startDay, end: endDay }
+    let preset = 'general'
+    const calendar = window.createTirCalendarLine('viz', data, { initialRange: { start: startDay, end: endDay }, preset: preset, canvasVisible: true, monthLabels: true, dataVisible: true, selectionStroke: 'none', selectionFill: 'rgba(0,0,0,0.12)' })
     // Summary stays in sync with calendar selection
-    const summary = window.createCgmSummary('summary', data, { source: calendar, preset: 'N' })
-    //const tirbar  = window.createCgmTir('tirbar', data, { source: calendar, preset: 'N' })
-    //const makeClaude = window.createCgmTirClaude || (window.CgmTir && window.CgmTir.createCgmTirClaude)
-    //const tirclaude = makeClaude ? makeClaude('tirclaude', data, { source: calendar, preset: 'N' }) : null
-    //const tircard = window.createCgmTirCard('tircard', data, { source: calendar, preset: 'N' })
-    //const tiragpcard = window.createCgmTirAgpCard('tiragpcard', data, { source: calendar, preset: 'N' })
-    const tirdetailed = window.createCgmTirDetailed('tirdetailed', data, { source: calendar, preset: 'N', showSeparators: false })
-    const strips  = window.createCgmStrips('strips', data, { source: calendar, preset: 'N', colorWholeWeek: false  })
-    const agp     = window.createCgmAgp('agp', data, { source: calendar, preset: 'N' })
+    const summary = window.createCgmSummary('summary', data, { source: calendar, preset: preset })
+    
+    // When the Summary preset control changes, propagate to all widgets
+    summary.on('presetchange', ({ preset: p })=>{
+      try { calendar.setPreset(p) } catch {}
+      try { summary.setPreset(p) } catch {}
+      try { tirdetailed.setPreset(p) } catch {}
+      try { strips.setPreset(p) } catch {}
+      try { agp.setPreset(p) } catch {}
+    })
+
+    const tirdetailed = window.createCgmTirDetailed('tirdetailed', data, { source: calendar, preset: preset, showSeparators: false })
+    const strips  = window.createCgmStrips('strips', data, { source: calendar, preset: preset, colorWholeWeek: false  })
+    const agp     = window.createCgmAgp('agp', data, { source: calendar, preset: preset })
 
     window.addEventListener('keydown', (e)=>{
       const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : ''
       if (['input','textarea','select'].includes(tag)) return
-      if (e.key.toLowerCase()==='t'){
-        console.log('t')
-        const cur = (window.__preset || 'N')
-        const nxt = (cur==='T') ? 'N' : 'T'
-        window.__preset = nxt
-        calendar.setPreset(nxt); summary.setPreset(nxt); tirdetailed.setPreset(nxt); strips.setPreset(nxt); agp.setPreset(nxt)
+      if (e.key.toLowerCase()==='g'){
+        // Toggle goals/time in TIR Detailed
+        window.__showTime = !window.__showTime
+        try { tirdetailed.setShowTime(window.__showTime) } catch {}
         e.preventDefault()
-      } else if (e.key.toLowerCase()==='p'){
-        const cur = (window.__preset || 'N')
-        const nxt = (cur==='P') ? 'N' : 'P'
-        window.__preset = nxt
-        calendar.setPreset(nxt); summary.setPreset(nxt); tirdetailed.setPreset(nxt); strips.setPreset(nxt); agp.setPreset(nxt)
+      } else if (e.key.toLowerCase()==='d'){
+        // Toggle theme (Light/Dark)
+        __dark = !__dark
+        applyTheme()
         e.preventDefault()
       }
     })
   })
+</script>
+
+<!-- Keyboard Shortcuts Modal (injected at runtime) -->
+<script>
+  (function(){
+    const overlay = document.createElement('div')
+    overlay.className = 'modal-overlay'
+    overlay.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="kbdTitle">
+        <header>
+          <h3 id=\"kbdTitle\">Keyboard Shortcuts</h3>
+          <button class=\"btn\" id=\"kbdClose\" aria-label=\"Close\">Close</button>
+        </header>
+        <div class=\"content\">
+          <div class=\"shortcuts-grid\">
+            <div><span class=\"kbd\">1</span></div><div>Set span to 1 day</div>
+            <div><span class=\"kbd\">2</span></div><div>Set span to 7 days</div>
+            <div><span class=\"kbd\">3</span></div><div>Set span to 14 days</div>
+            <div><span class=\"kbd\">4</span></div><div>Set span to 21 days</div>
+            <div><span class=\"kbd\">5</span></div><div>Set span to 30 days</div>
+            <div><span class=\"kbd\">6</span></div><div>Set span to 90 days</div>
+
+            <div><span class=\"kbd\">←</span> / <span class=\"kbd\">→</span></div><div>Move selection by 1 day</div>
+            <div><span class=\"kbd\">Shift</span> + <span class=\"kbd\">←</span>/<span class=\"kbd\">→</span></div><div>Jump selection by current span</div>
+            <div><span class=\"kbd\">↑</span> / <span class=\"kbd\">↓</span></div><div>Pan timeline (line view)</div>
+
+          
+          <div><span class=\"kbd\">G</span></div><div>Toggle goals/time in TIR Detailed</div>
+          <div><span class=\"kbd\">D</span></div><div>Toggle theme (Light/Dark)</div>
+
+            <div><span class=\"kbd\">H</span></div><div>Show/hide this help</div>
+          </div>
+          <hr style=\"margin:12px 0; border:none; border-top:1px solid #eee;\"/>
+          <div style=\"color:#666; font-size:12px; line-height:1.5;\">
+            Tips: Drag on the calendar to select; drag beyond the edges to auto-pan. Use the swap button to toggle stacked/line views.
+          </div>
+        </div>
+        <footer>
+          <button class=\"btn\" id=\"kbdClose2\">Close</button>
+        </footer>
+      </div>`
+    document.body.appendChild(overlay)
+    const toggleKbd = (show)=>{ overlay.classList.toggle('show', !!show) }
+    const closeModal = ()=> toggleKbd(false)
+    overlay.addEventListener('click', (e)=>{ if (e.target === overlay) closeModal() })
+    overlay.querySelector('#kbdClose').addEventListener('click', closeModal)
+    overlay.querySelector('#kbdClose2').addEventListener('click', closeModal)
+    // Floating keyboard button (bottom-right)
+    const fab = document.createElement('button')
+    fab.className = 'kbd-fab'
+    fab.setAttribute('title','Keyboard shortcuts (H)')
+    fab.setAttribute('aria-label','Keyboard shortcuts')
+    fab.textContent = '⌨'
+    fab.addEventListener('click', ()=> toggleKbd(true))
+    document.body.appendChild(fab)
+    window.addEventListener('keydown', (e)=>{
+      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : ''
+      if (['input','textarea','select'].includes(tag)) return
+      if (e.key === 'h' || e.key === 'H'){
+        const open = !overlay.classList.contains('show')
+        toggleKbd(open); e.preventDefault(); e.stopPropagation()
+      }
+      if (e.key === 'Escape' && overlay.classList.contains('show')){ closeModal(); e.preventDefault(); e.stopPropagation() }
+    })
+  })()
 </script>

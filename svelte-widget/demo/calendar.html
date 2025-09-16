@@ -16,11 +16,11 @@
 <div id="viz"></div>
 <pre id="log">range: </pre>
 <div id="presetControls">
-  <button id="btnN" class="btn active">General</button>
-  <button id="btnT" class="btn">Tight</button>
-  <button id="btnP" class="btn">Pregnancy</button>
+  <button id="btnGeneral" class="btn active">General</button>
+  <button id="btnTight" class="btn">Tight</button>
+  <button id="btnPregnancy" class="btn">Pregnancy</button>
   <span class="hint">or press T/P to toggle</span>
-</div>
+  </div>
 
 <link rel="stylesheet" href="../dist/lib/style.css" />
 <script src="../dist/lib/cgm-tir.umd.js"></script>
@@ -35,17 +35,21 @@
     const endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
     const startDay = Math.max(t0, endDay - 14*DAY + 1)
     
-    const api = window.createTirCalendar('viz', data, { initialRange: { start: startDay, end: endDay }, preset: 'N' })
+    const api = window.createTirCalendar('viz', data, { initialRange: { start: startDay, end: endDay }, preset: 'general' })
     
     const log = document.getElementById('log')
     
     api.on('rangechange', ({start,end,days}) => {
       log.textContent = 'range: ' + new Date(start).toISOString().slice(0,10) + ' → ' + new Date(end).toISOString().slice(0,10) + `  (${days} days)`
     });
-    const setActive=(p)=>{document.getElementById('btnN').classList.toggle('active',p==='N');document.getElementById('btnT').classList.toggle('active',p==='T');document.getElementById('btnP').classList.toggle('active',p==='P')}
-    document.getElementById('btnN').onclick=()=>{window.__preset='N';api.setPreset('N');setActive('N')}
-    document.getElementById('btnT').onclick=()=>{window.__preset='T';api.setPreset('T');setActive('T')}
-    document.getElementById('btnP').onclick=()=>{window.__preset='P';api.setPreset('P');setActive('P')}
-    window.addEventListener('keydown',(e)=>{const tag=(e.target&&e.target.tagName)?e.target.tagName.toLowerCase():'';if(['input','textarea','select'].includes(tag))return; if(e.key.toLowerCase()==='t'){const cur=(window.__preset||'N');const nxt=(cur==='T')?'N':'T';window.__preset=nxt;api.setPreset(nxt);setActive(nxt);e.preventDefault()} if(e.key.toLowerCase()==='p'){const cur=(window.__preset||'N');const nxt=(cur==='P')?'N':'P';window.__preset=nxt;api.setPreset(nxt);setActive(nxt);e.preventDefault()}})
+    const setActive=(p)=>{
+      document.getElementById('btnGeneral').classList.toggle('active',p==='general')
+      document.getElementById('btnTight').classList.toggle('active',p==='tight')
+      document.getElementById('btnPregnancy').classList.toggle('active',p==='pregnancy')
+    }
+    document.getElementById('btnGeneral').onclick=()=>{window.__preset='general';api.setPreset('general');setActive('general')}
+    document.getElementById('btnTight').onclick=()=>{window.__preset='tight';api.setPreset('tight');setActive('tight')}
+    document.getElementById('btnPregnancy').onclick=()=>{window.__preset='pregnancy';api.setPreset('pregnancy');setActive('pregnancy')}
+    window.addEventListener('keydown',(e)=>{const tag=(e.target&&e.target.tagName)?e.target.tagName.toLowerCase():'';if(['input','textarea','select'].includes(tag))return; if(e.key.toLowerCase()==='t'){const cur=(window.__preset||'general');const nxt=(cur==='tight')?'general':'tight';window.__preset=nxt;api.setPreset(nxt);setActive(nxt);e.preventDefault()} if(e.key.toLowerCase()==='p'){const cur=(window.__preset||'general');const nxt=(cur==='pregnancy')?'general':'pregnancy';window.__preset=nxt;api.setPreset(nxt);setActive(nxt);e.preventDefault()}})
   })
 </script>

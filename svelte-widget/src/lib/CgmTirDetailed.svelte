@@ -1,9 +1,13 @@
 <script>
   import { createEventDispatcher } from 'svelte'
+  import targets from '../../targets.json'
+  
   const dispatch = createEventDispatcher()
+  let host
+  function cssVar(name, def){ try{ const v=(getComputedStyle(host).getPropertyValue(name)||'').trim(); return v||def }catch{return def} }
   export let data
   export let range = null
-  export let preset = 'N'
+  export let preset = 'general' // 'general' | 'tight' | 'pregnancy'
   // Optional: draw thin separators between stacked ranges
   export let showSeparators = false
 
@@ -11,21 +15,22 @@
   const dayMs = 24*60*60*1000
 
   const isMmol = ()=> /mmol/i.test(data?.units || 'mmol')
-  const TH = ()=> {
-    if (isMmol()){
-      if (preset==='T') return { vlow:3.0, low:3.9, high:7.8, vhigh:13.9 }
-      if (preset==='P') return { vlow:3.0, low:3.5, high:7.8, vhigh:13.9 }
-      return { vlow:3.0, low:3.9, high:10.0, vhigh:13.9 }
-    } else {
-      if (preset==='T') return { vlow:54, low:70, high:140, vhigh:250 }
-      if (preset==='P') return { vlow:54, low:63, high:140, vhigh:250 }
-      return { vlow:54, low:70, high:180, vhigh:250 }
-    }
-  }
+  const unit = ()=> isMmol() ? 'mmol' : 'mg'
+  const unitPretty = ()=> isMmol() ? 'mmol/L':'mg/dL'
+  const toMg = (v)=> isMmol() ? v*18 : v
 
+  const PRESET_CFG = targets
+  const TH = ()=> PRESET_CFG[preset].thresholds[unit()]
+  // Recompute thresholds reactively when preset or data/units change
+  $: currentThresholds = (preset, data, TH())
   let pct = { vlow:0, low:0, targ:0, high:0, vhigh:0 }
   let present = 0, expected = 0
   let minutes = { vlow:0, low:0, targ:0, high:0, vhigh:0 }
+  let hoverAll = false
+  export let showTime = false
+  $: displayTime = hoverAll || showTime
+  // Hover/keyboard state toggles Goal <-> (time)
+  // (defined once at top)
 
   function initSeries(){
     if (!data) return
@@ -51,10 +56,10 @@
       for (let i=i0;i<=i1;i++){
         const v = values[i]; if (!(Number.isFinite(v) && v>=0)) continue
         valid++
-        if (v < th.vlow) c.vlow++
+        if (v < th.veryLow) c.vlow++
         else if (v < th.low) c.low++
         else if (v <= th.high) c.targ++
-        else if (v <= th.vhigh) c.high++
+        else if (v <= th.veryHigh) c.high++
         else c.vhigh++
       }
       present = valid
@@ -91,15 +96,15 @@
     return `${hours}h${remainingMins.toString().padStart(2, '0')}min`
   }
 
-  function getRangeText(type) {
-    const th = TH()
-    const unit = isMmol() ? 'mmol/L' : 'mg/dL'
+  // Make getRangeText reactive to preset and data changes
+  $: getRangeText = (type) => {
+    const th = currentThresholds
     
-    if (type === 'vhigh') return `>${isMmol() ? th.vhigh.toFixed(1) : Math.round(th.vhigh)} ${unit}`
-    if (type === 'high') return `${isMmol() ? (th.high+0.1).toFixed(1) : (Math.round(th.high)+1)}-${isMmol() ? th.vhigh.toFixed(1) : Math.round(th.vhigh)} ${unit}`
-    if (type === 'targ') return `${isMmol() ? th.low.toFixed(1) : Math.round(th.low)}-${isMmol() ? th.high.toFixed(1) : Math.round(th.high)} ${unit}`
-    if (type === 'low') return `${isMmol() ? th.vlow.toFixed(1) : Math.round(th.vlow)}-${isMmol() ? (th.low-0.1).toFixed(1) : (Math.round(th.low)-1)} ${unit}`
-    if (type === 'vlow') return `<${isMmol() ? th.vlow.toFixed(1) : Math.round(th.vlow)} ${unit}`
+    if (type === 'vhigh') return `>${th.veryHigh} ${unitPretty()}`
+    if (type === 'high') return `${th.high}-${th.veryHigh} ${unitPretty()}`
+    if (type === 'targ') return `${th.low}-${th.high} ${unitPretty()}`
+    if (type === 'low') return `${th.veryLow}-${th.low} ${unitPretty()}`
+    if (type === 'vlow') return `<${th.veryLow} ${unitPretty()}`
     return ''
   }
 
@@ -149,16 +154,24 @@
     low: pct.low > 0 ? 70 + linePositions.low : 242,
     vlow: 270 // Fixed at bottom
   } 
+
+  // Goal thresholds for percentages by preset (from clinical guidance)
+  function goalPct(type){
+    return targets[preset].percentGoals[type]
+  }
+
+  // Hover state over entire widget toggles Goal <-> (time)
+  // (defined earlier)
 </script>
 
-<div class="widget-container">
-  <svg width="{svgWidth}" height="{svgHeight}" viewBox="0 0 {svgWidth} {svgHeight}">    
+<div class="widget-container" role="img" aria-label="TIR detailed" on:mouseenter={()=> hoverAll=true} on:mouseleave={()=> hoverAll=false}>
+  <svg bind:this={host} width="{svgWidth}" height="{svgHeight}" viewBox="0 0 {svgWidth} {svgHeight}">    
     
     <!-- Y-axis values (hidden when no data) -->
     {#if present > 0}
-      <text x="35" y="{30 + yAxisPositions.low}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? TH().low.toFixed(1) : TH().low}</text>
-      <text x="35" y="{30 + yAxisPositions.high}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? TH().high.toFixed(1) : TH().high}</text>
-      <text x="35" y="{30 + yAxisPositions.vhigh}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? TH().vhigh.toFixed(1) : TH().vhigh}</text>
+      <text x="35" y="{30 + yAxisPositions.low}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? currentThresholds.low.toFixed(1) : currentThresholds.low}</text>
+      <text x="35" y="{30 + yAxisPositions.high}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? currentThresholds.high.toFixed(1) : currentThresholds.high}</text>
+      <text x="35" y="{30 + yAxisPositions.vhigh}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? currentThresholds.veryHigh.toFixed(1) : currentThresholds.veryHigh}</text>
     {/if}
     
     <!-- Callout lines (rendered first so bars are on top) -->
@@ -183,19 +196,19 @@
     
     <!-- Color bars from bottom to top -->
     {#if barHeights.vlow > 0}
-      <rect x="40" y="{30 + barPositions.vlow}" width="50" height="{barHeights.vlow}" fill="#e57373"/>
+      <rect x="40" y="{30 + barPositions.vlow}" width="50" height="{barHeights.vlow}" fill="{cssVar('--cgm-very-low', '#e57373')}"/>
     {/if}
     {#if barHeights.low > 0}
-      <rect x="40" y="{30 + barPositions.low}" width="50" height="{barHeights.low}" fill="#ff9e80"/>
+      <rect x="40" y="{30 + barPositions.low}" width="50" height="{barHeights.low}" fill="{cssVar('--cgm-low', '#ff9e80')}"/>
     {/if}
     {#if barHeights.targ > 0}
-      <rect x="40" y="{30 + barPositions.targ}" width="50" height="{barHeights.targ}" fill="#86c89d"/>
+      <rect x="40" y="{30 + barPositions.targ}" width="50" height="{barHeights.targ}" fill="{cssVar('--cgm-in-range', '#86c89d')}"/>
     {/if}
     {#if barHeights.high > 0}
-      <rect x="40" y="{30 + barPositions.high}" width="50" height="{barHeights.high}" fill="#ffcc80"/>
+      <rect x="40" y="{30 + barPositions.high}" width="50" height="{barHeights.high}" fill="{cssVar('--cgm-high', '#ffcc80')}"/>
     {/if}
     {#if barHeights.vhigh > 0}
-      <rect x="40" y="{30 + barPositions.vhigh}" width="50" height="{barHeights.vhigh}" fill="#ff8a65"/>
+      <rect x="40" y="{30 + barPositions.vhigh}" width="50" height="{barHeights.vhigh}" fill="{cssVar('--cgm-very-high', '#ff8a65')}"/>
     {/if}
 
     <!-- Thin white separators at band boundaries (behind flag) -->
@@ -223,7 +236,7 @@
       </text>
       <text x="{rightX}" y="0" font-family="Arial, sans-serif" text-anchor="end">
         <tspan font-size="12" font-weight="bold" fill="#333">{Math.round(pct.vhigh)}%</tspan>
-        <tspan font-size="10" fill="#777"> ({formatTime(minutes.vhigh)})</tspan>
+        <tspan font-size="10" fill="#777"> {displayTime ? `(${formatTime(minutes.vhigh)})` : `Goal ${goalPct('veryHigh')}`}</tspan>
       </text>
     </g>
     
@@ -235,7 +248,7 @@
       </text>
       <text x="{rightX}" y="0" font-family="Arial, sans-serif" text-anchor="end">
         <tspan font-size="12" font-weight="bold" fill="#333">{Math.round(pct.high)}%</tspan>
-        <tspan font-size="10" fill="#777"> ({formatTime(minutes.high)})</tspan>
+        <tspan font-size="10" fill="#777"> {displayTime ? `(${formatTime(minutes.high)})` : `Goal ${goalPct('high')}`}</tspan>
       </text>
     </g>
     
@@ -247,7 +260,7 @@
       </text>
       <text x="{rightX}" y="0" font-family="Arial, sans-serif" text-anchor="end">
         <tspan font-size="12" font-weight="bold" fill="#333">{Math.round(pct.targ)}%</tspan>
-        <tspan font-size="10" fill="#777"> ({formatTime(minutes.targ)})</tspan>
+        <tspan font-size="10" fill="#777"> {displayTime ? `(${formatTime(minutes.targ)})` : `Goal ${goalPct('inRange')}`}</tspan>
       </text>
     </g>
     
@@ -259,7 +272,7 @@
       </text>
       <text x="{rightX}" y="0" font-family="Arial, sans-serif" text-anchor="end">
         <tspan font-size="12" font-weight="bold" fill="#333">{Math.round(pct.low)}%</tspan>
-        <tspan font-size="10" fill="#777"> ({formatTime(minutes.low)})</tspan>
+        <tspan font-size="10" fill="#777"> {displayTime ? `(${formatTime(minutes.low)})` : `Goal ${goalPct('low')}`}</tspan>
       </text>
     </g>
     
@@ -271,7 +284,7 @@
       </text>
       <text x="340" y="0" font-family="Arial, sans-serif" text-anchor="end">
         <tspan font-size="12" font-weight="bold" fill="#333">{Math.round(pct.vlow)}%</tspan>
-        <tspan font-size="10" fill="#777"> ({formatTime(minutes.vlow)})</tspan>
+        <tspan font-size="10" fill="#777"> {displayTime ? `(${formatTime(minutes.vlow)})` : `Goal ${goalPct('veryLow')}`}</tspan>
       </text>
     </g>
   </svg>

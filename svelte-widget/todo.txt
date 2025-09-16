@@ -1,0 +1,78 @@
+- refactor all widgets so they emit event when target changes or things change or get clicked like selection etc..
+
+- in demo make a clean shortcup section and enable all keyboard shortcuts from there and not the widget. add go to now shortcut
+
+- lets normilize font size and style, and buttons can be defined overwrittern in demo.html
+
+- lets normilize colors in more detail can be defined overwrittern in demo.html
+
+- lets remove calendar stacked from demo for now
+
+
+//
+- lets all button calendar on the side to click and on to go to today
+
+- make a nice calendar stacked of all the data demo on its oun with better label and options to hide data etc. 
+
+- expireiment making time navigation in the bottom of the page
+
+
+
+fonts 
+
+
+> Here’s a clean, reusable type scale based on the layout in your screenshot, grouped by where it would be used.
+
+  Global Scale
+
+  - 18px — primary numeric values (hero metrics)
+  - 16px — section headers (card titles, panel headings)
+  - 14px — secondary values, emphasized labels
+  - 12px — body, list items, buttons, control labels (default)
+  - 11px — muted/help text, goal text, captions
+  - 10px — dense axis ticks, compact legends
+
+  Summary & Metrics
+
+  - Metric value (primary): 18px bold
+  - Metric label (e.g., “Average Glucose”): 12px bold
+  - Secondary value (right-aligned number): 14px bold
+  - Goal text (e.g., “Goal: <8.6 mmol/L”): 11px muted
+
+  TIR Detailed (left bar + labels)
+
+  - Band labels (Very High / High / Target / Low / Very Low): 12px bold
+  - Band thresholds (e.g., “>13.9 mmol/L”): 11px
+  - Percentages (right of bands): 12px bold
+  - Goal annotations (e.g., “Goal ≤5%”): 11px muted
+  - Axis threshold labels (left): 11px
+
+  AGP & Charts
+
+  - Axis ticks (time and glucose): 10–11px
+  - Threshold lines (labels/pills): 11px bold
+  - Legend numbers (percentiles if shown): 11px
+
+  Calendar Line / Strips
+
+  - Month/day labels: 10–11px
+  - Date badges inside tiles: 10–11px
+  - Threshold guides inside tiles: 10–11px
+
+  Controls & UI Chrome
+
+  - Section headings (e.g., “Target Range”, “1 Month”): 16px semibold
+  - Subsection labels (“Time CGM Active”): 12px
+  - Preset toggles (General/Tight/Pregnancy): 12px
+  - Quick-span buttons (1d/1w/2w/1m/3m): 12px
+  - Keyboard hint keys (if shown): 12px monospace
+
+  Line-height & spacing
+
+  - 18/16px text: line-height ~1.3
+  - 14/12/11/10px text: line-height ~1.35–1.45
+  - Vertical rhythm: 6–8px within groups; 12–16px between sections
+
+  This set keeps things legible and compact like your screenshot, with clear hierarchy: numbers pop, labels are
+  crisp, and dense chart text stays readable.
+

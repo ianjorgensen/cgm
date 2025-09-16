@@ -34,14 +34,14 @@
     const tEnd = t0 + data.stepMs * (data.glucose.length - 1)
     let endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
     let startDay = Math.max(t0, endDay - 14*DAY + 1)
-    const api = window.createCgmStrips('strips', data, { initialRange: { start: startDay, end: endDay }, preset: 'N' })
+    const api = window.createCgmStrips('strips', data, { initialRange: { start: startDay, end: endDay }, preset: 'general' })
 
-    function setPreset(p){ window.__preset=p; api.setPreset(p); document.getElementById('pN').classList.toggle('active',p==='N'); document.getElementById('pT').classList.toggle('active',p==='T'); document.getElementById('pP').classList.toggle('active',p==='P') }
+    function setPreset(p){ window.__preset=p; api.setPreset(p); document.getElementById('pN').classList.toggle('active',p==='general'); document.getElementById('pT').classList.toggle('active',p==='tight'); document.getElementById('pP').classList.toggle('active',p==='pregnancy') }
     function setDays(n){ startDay = Math.max(t0, endDay - n*DAY + 1); api.setRange({ start: startDay, end: endDay }); document.getElementById('d14').classList.toggle('active',n===14); document.getElementById('d30').classList.toggle('active',n===30); document.getElementById('d90').classList.toggle('active',n===90) }
 
-    document.getElementById('pN').onclick = ()=> setPreset('N')
-    document.getElementById('pT').onclick = ()=> setPreset('T')
-    document.getElementById('pP').onclick = ()=> setPreset('P')
+    document.getElementById('pN').onclick = ()=> setPreset('general')
+    document.getElementById('pT').onclick = ()=> setPreset('tight')
+    document.getElementById('pP').onclick = ()=> setPreset('pregnancy')
     document.getElementById('d14').onclick = ()=> setDays(14)
     document.getElementById('d30').onclick = ()=> setDays(30)
     document.getElementById('d90').onclick = ()=> setDays(90)

@@ -17,9 +17,9 @@
         <h1>Detailed TIR Widget Demo</h1>
         
         <div class="controls">
-            <button onclick="setPreset('N')">General Range</button>
-            <button onclick="setPreset('T')">Tight Range</button>
-            <button onclick="setPreset('P')">Pregnancy Range</button>
+            <button onclick="setPreset('general')">General Range</button>
+            <button onclick="setPreset('tight')">Tight Range</button>
+            <button onclick="setPreset('pregnancy')">Pregnancy Range</button>
         </div>
         
         <div class="demo">
@@ -44,7 +44,7 @@
             
             const widget = make('tir-detailed', data, { 
                 initialRange: { start: startDay, end: endDay }, 
-                preset: 'N' 
+                preset: 'general' 
             });
 
             window.setPreset = function(preset) {

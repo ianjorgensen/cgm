@@ -1,28 +1,22 @@
 <script>
   import { onMount } from 'svelte'
   import * as d3 from 'd3'
+  import targets from '../../targets.json'
 
   export let data
   export let range = null // { start, end }
-  export let preset = 'N'
+  export let preset = 'general'
 
   let svg
   let W = 900, H = 260
   const M = { l:50, r:60, t:20, b:26 }
   const dayMs = 24*60*60*1000
 
+  function cssVar(name, def){ try{ const v=(getComputedStyle(svg).getPropertyValue(name)||'').trim(); return v||def }catch{return def} }
+
   const isMmol = ()=> /mmol/i.test(data?.units || 'mmol')
-  const TH = ()=> {
-    if (isMmol()){
-      if (preset==='T') return { vlow:3.0, low:3.9, high:7.8, vhigh:13.9 }
-      if (preset==='P') return { vlow:3.0, low:3.5, high:7.8, vhigh:13.9 }
-      return { vlow:3.0, low:3.9, high:10.0, vhigh:13.9 }
-    } else {
-      if (preset==='T') return { vlow:54, low:70, high:140, vhigh:250 }
-      if (preset==='P') return { vlow:54, low:63, high:140, vhigh:250 }
-      return { vlow:54, low:70, high:180, vhigh:250 }
-    }
-  }
+  const unitKey = ()=> isMmol() ? 'mmol' : 'mg'
+  const TH = ()=> targets[preset].thresholds[unitKey()]
 
   let time, values
   function initSeries(){
@@ -89,7 +83,7 @@
     const th = TH()
     const capMax = isMmol() ? 20 : 360
     // Fixed Y domain independent of selection
-    const y = d3.scaleLinear().domain([th.vlow, capMax]).range([H-M.b, M.t])
+    const y = d3.scaleLinear().domain([th.veryLow, capMax]).range([H-M.b, M.t])
 
     // bands and areas
     const area = (y0, y1)=> d3.area().defined(d=>Number.isFinite(y0(d))&&Number.isFinite(y1(d)))
@@ -99,24 +93,23 @@
       .x(d=>x(d.t)).y0(d=>y(Math.min(d.p95, th.low))).y1(d=>y(d.p05))
     const aIn = d3.area().defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95>th.low && d.p05<th.high)
       .x(d=>x(d.t)).y0(d=>y(Math.min(d.p95, th.high))).y1(d=>y(Math.max(d.p05, th.low)))
-    const aAboveMid = d3.area().defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95>th.high && d.p05<th.vhigh)
-      .x(d=>x(d.t)).y0(d=>y(Math.min(d.p95, th.vhigh))).y1(d=>y(Math.max(d.p05, th.high)))
-    const aAboveVhStraddle = d3.area().defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95>th.vhigh && d.p05<th.vhigh)
-      .x(d=>x(d.t)).y0(d=>y(d.p95)).y1(d=>y(th.vhigh))
-    const aAboveVh = d3.area().defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p05>th.vhigh)
+    const aAboveMid = d3.area().defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95>th.high && d.p05<th.veryHigh)
+      .x(d=>x(d.t)).y0(d=>y(Math.min(d.p95, th.veryHigh))).y1(d=>y(Math.max(d.p05, th.high)))
+    const aAboveVhStraddle = d3.area().defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p95>th.veryHigh && d.p05<th.veryHigh)
+      .x(d=>x(d.t)).y0(d=>y(d.p95)).y1(d=>y(th.veryHigh))
+    const aAboveVh = d3.area().defined(d=>Number.isFinite(d.p05)&&Number.isFinite(d.p95) && d.p05>th.veryHigh)
       .x(d=>x(d.t)).y0(d=>y(d.p95)).y1(d=>y(d.p05))
 
-    // Background target band
-    root.append('rect')
-      .attr('x', M.l).attr('width', (W-M.r) - M.l)
-      .attr('y', y(th.high)).attr('height', y(th.low) - y(th.high))
-      .attr('fill', '#1a9850').attr('opacity', 0.10)
+    // Background target band (no fill per request)
+    // Keeping the space reserved but not rendering a filled band
+    // Threshold lines below still indicate the range clearly
 
-    root.append('path').attr('d', aBelow(series)).attr('fill','#d73027').attr('opacity',0.18)
-    root.append('path').attr('d', aIn(series)).attr('fill','#1a9850').attr('opacity',0.12)
-    root.append('path').attr('d', aAboveMid(series)).attr('fill','#fdae61').attr('opacity',0.18)
-    root.append('path').attr('d', aAboveVhStraddle(series)).attr('fill','#f46d43').attr('opacity',0.26)
-    root.append('path').attr('d', aAboveVh(series)).attr('fill','#f46d43').attr('opacity',0.26)
+    root.append('path').attr('d', aBelow(series)).attr('fill', cssVar('--cgm-low-strong', '#d73027')).attr('opacity',0.18)
+    root.append('path').attr('d', aIn(series)).attr('fill', cssVar('--cgm-in-range', '#1a9850')).attr('opacity',0.12)
+    root.append('path').attr('d', aAboveMid(series)).attr('fill', cssVar('--cgm-high', '#fdae61')).attr('opacity',0.18)
+    const vhCol = cssVar('--cgm-very-high-strong', '#f46d43')
+    root.append('path').attr('d', aAboveVhStraddle(series)).attr('fill', vhCol).attr('opacity',0.26)
+    root.append('path').attr('d', aAboveVh(series)).attr('fill', vhCol).attr('opacity',0.26)
 
     // IQR split fills
     const iqrIn = d3.area().defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p75>th.low && d.p25<th.high)
@@ -128,14 +121,14 @@
     const iqrBelow = d3.area().defined(d=>Number.isFinite(d.p25)&&Number.isFinite(d.p75) && d.p25<th.low)
       .x(d=>x(d.t)).y0(d=>y(d.p25)).y1(d=>y(Math.min(d.p75, th.low)))
 
-    root.append('path').attr('d', iqrBelow(series)).attr('fill','#d73027').attr('opacity',0.35)
-    root.append('path').attr('d', iqrIn(series)).attr('fill','#1a9850').attr('opacity',0.25)
-    root.append('path').attr('d', iqrAboveMid(series)).attr('fill','#fdae61').attr('opacity',0.35)
-    root.append('path').attr('d', iqrAboveVhStraddle(series)).attr('fill','#f46d43').attr('opacity',0.45)
+    root.append('path').attr('d', iqrBelow(series)).attr('fill', cssVar('--cgm-low-strong', '#d73027')).attr('opacity',0.35)
+    root.append('path').attr('d', iqrIn(series)).attr('fill', cssVar('--cgm-in-range', '#1a9850')).attr('opacity',0.25)
+    root.append('path').attr('d', iqrAboveMid(series)).attr('fill', cssVar('--cgm-high', '#fdae61')).attr('opacity',0.35)
+    root.append('path').attr('d', iqrAboveVhStraddle(series)).attr('fill', vhCol).attr('opacity',0.45)
 
     // 50th line colored by band with precise splits (low/high/vhigh)
     try {
-      const colorFor = v => (v < th.low ? '#d73027' : (v > th.vhigh ? '#f46d43' : (v > th.high ? '#fdae61' : '#1a9850')))
+      const colorFor = v => (v < th.low ? cssVar('--cgm-low-strong', '#d73027') : (v > th.vhigh ? cssVar('--cgm-very-high-strong', '#f46d43') : (v > th.high ? cssVar('--cgm-high', '#fdae61') : cssVar('--cgm-in-range', '#1a9850'))))
       const line50 = d3.line().x(d=>x(d.t)).y(d=>y(d.p50))
       const addSeg = (segs, col, a, b) => {
         if (!Number.isFinite(a.p50) || !Number.isFinite(b.p50)) return
@@ -167,17 +160,19 @@
     } catch {}
 
     // thresholds
-    root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.high)).attr('y2',y(th.high)).attr('stroke','#6ea77b').attr('stroke-width',1)
-    root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.low)).attr('y2',y(th.low)).attr('stroke','#6ea77b').attr('stroke-width',1)
-    root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.vlow)).attr('y2',y(th.vlow)).attr('stroke','#cccccc').attr('stroke-width',1)
-    root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.vhigh)).attr('y2',y(th.vhigh)).attr('stroke','#cccccc').attr('stroke-width',1)
+    const thCol = cssVar('--cgm-threshold', '#6ea77b')
+    root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.high)).attr('y2',y(th.high)).attr('stroke', thCol).attr('stroke-width',1)
+    root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.low)).attr('y2',y(th.low)).attr('stroke', thCol).attr('stroke-width',1)
+    const pale = cssVar('--cgm-grid', '#cccccc')
+    root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.vlow)).attr('y2',y(th.vlow)).attr('stroke', pale).attr('stroke-width',1)
+    root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.vhigh)).attr('y2',y(th.vhigh)).attr('stroke', pale).attr('stroke-width',1)
 
     // axes + right-side percentile labels
     const perHr = 60*60*1000 / data.stepMs
     const ticks = d3.range(0, 24, 3).map(h=>Math.round(h*perHr))
     const fmtHr = h => (h===0||h===24) ? '12am' : (h<12?`${h}am`:(h===12?'12pm':`${h-12}pm`))
     root.append('g').attr('transform',`translate(0,${H-M.b})`).call(d3.axisBottom(x).tickValues(ticks).tickFormat(t=>fmtHr(Math.round(t/perHr))).tickSizeOuter(0))
-    const yTicks = [TH().vlow, TH().low, TH().high, TH().vhigh, (isMmol()?20:360)].filter(v=>v>=th.vlow && v<=capMax)
+    const yTicks = [TH().veryLow, TH().low, TH().high, TH().veryHigh, (isMmol()?20:360)].filter(v=>v>=th.veryLow && v<=capMax)
     const fmtY = isMmol() ? (v=> (Math.round(v*10)/10)) : (v=> Math.round(v))
     root.append('g').attr('transform',`translate(${M.l},0)`).call(d3.axisLeft(y).tickValues(yTicks).tickFormat(fmtY)).call(g=>g.select('.domain').remove())
 
@@ -199,7 +194,7 @@
     // Green target range pill labels at left for low/high
     try {
       const padX = 6, r = 5, h = 16
-      const green = '#1a9850'
+      const green = cssVar('--cgm-in-range', '#1a9850')
       const fmt = v => {
         if (isMmol()){
           const s = (Math.round(v*10)/10).toFixed(1)

@@ -29,20 +29,20 @@
     const DAY = 24*60*60*1000
     const endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
     const startDay = Math.max(t0, endDay - 14*DAY + 1)
-  const api = window.createCgmTir('bar', data, { initialRange: { start: startDay, end: endDay }, preset: 'N' })
+  const api = window.createCgmTir('bar', data, { initialRange: { start: startDay, end: endDay }, preset: 'general' })
     const setActive = (p)=>{
-      document.getElementById('btnN').classList.toggle('active', p==='N')
-      document.getElementById('btnT').classList.toggle('active', p==='T')
-      document.getElementById('btnP').classList.toggle('active', p==='P')
+      document.getElementById('btnN').classList.toggle('active', p==='general')
+      document.getElementById('btnT').classList.toggle('active', p==='tight')
+      document.getElementById('btnP').classList.toggle('active', p==='pregnancy')
     }
-    document.getElementById('btnN').onclick = ()=>{ window.__preset='N'; api.setPreset('N'); setActive('N') }
-    document.getElementById('btnT').onclick = ()=>{ window.__preset='T'; api.setPreset('T'); setActive('T') }
-    document.getElementById('btnP').onclick = ()=>{ window.__preset='P'; api.setPreset('P'); setActive('P') }
+    document.getElementById('btnN').onclick = ()=>{ window.__preset='general'; api.setPreset('general'); setActive('general') }
+    document.getElementById('btnT').onclick = ()=>{ window.__preset='tight'; api.setPreset('tight'); setActive('tight') }
+    document.getElementById('btnP').onclick = ()=>{ window.__preset='pregnancy'; api.setPreset('pregnancy'); setActive('pregnancy') }
     window.addEventListener('keydown', (e)=>{
       const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : ''
       if (['input','textarea','select'].includes(tag)) return
-      if (e.key.toLowerCase()==='t'){ const cur=(window.__preset||'N'); const nxt=(cur==='T')?'N':'T'; window.__preset=nxt; api.setPreset(nxt); setActive(nxt); e.preventDefault() }
-      if (e.key.toLowerCase()==='p'){ const cur=(window.__preset||'N'); const nxt=(cur==='P')?'N':'P'; window.__preset=nxt; api.setPreset(nxt); setActive(nxt); e.preventDefault() }
+      if (e.key.toLowerCase()==='t'){ const cur=(window.__preset||'general'); const nxt=(cur==='tight')?'general':'tight'; window.__preset=nxt; api.setPreset(nxt); setActive(nxt); e.preventDefault() }
+      if (e.key.toLowerCase()==='p'){ const cur=(window.__preset||'general'); const nxt=(cur==='pregnancy')?'general':'pregnancy'; window.__preset=nxt; api.setPreset(nxt); setActive(nxt); e.preventDefault() }
     })
   })
 </script>

@@ -1,0 +1,700 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CGM Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body { 
+    font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+    background: #f5f7fa;
+    min-height: 100vh;
+  }
+  
+  /* Header Section - Subtle and Floating */
+  .header {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+  
+  .header-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #2d3748;
+    margin: 0;
+    letter-spacing: -0.2px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .header p {
+    font-size: 13px;
+    color: #718096;
+    margin: 0;
+    font-weight: 400;
+  }
+  
+  .header-divider {
+    width: 1px;
+    height: 24px;
+    background: linear-gradient(to bottom, transparent, rgba(203, 213, 224, 0.8), transparent);
+    margin: 0 16px;
+  }
+  
+  /* Add top padding to body to account for fixed header */
+  body {
+    padding-top: 60px;
+  }
+  
+  /* Calendar Container */
+  .calendar-section {
+    background: white;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    position: sticky;
+    top: 60px;
+    z-index: 100;
+  }
+  
+  .calendar-wrapper {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  .calendar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 15px;
+  }
+  
+  .calendar-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #2d3748;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .date-range-shortcuts {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  
+  .shortcut-btn {
+    padding: 6px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: white;
+    color: #4a5568;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .shortcut-btn:hover {
+    background: #f7fafc;
+    border-color: #cbd5e0;
+  }
+  
+  .shortcut-btn.active {
+    background: #4299e1;
+    color: white;
+    border-color: #4299e1;
+  }
+  
+  .calendar-nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .nav-btn {
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: white;
+    color: #4a5568;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  
+  .nav-btn:hover {
+    background: #f7fafc;
+    border-color: #cbd5e0;
+  }
+  
+  .nav-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  
+  .current-range {
+    padding: 8px 12px;
+    background: #edf2f7;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #4a5568;
+    font-weight: 500;
+    min-width: 200px;
+    text-align: center;
+  }
+  
+  #calendar {
+    margin: 0 auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  
+  /* Preset Controls */
+  .preset-controls {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 15px 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    background: white;
+    border-bottom: 1px solid #e1e8ed;
+  }
+  
+  .preset-controls label {
+    font-weight: 600;
+    color: #4a5568;
+  }
+  
+  .preset-buttons {
+    display: flex;
+    gap: 8px;
+  }
+  
+  .preset-btn {
+    padding: 8px 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    background: white;
+    color: #4a5568;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .preset-btn:hover {
+    background: #f7fafc;
+    border-color: #cbd5e0;
+  }
+  
+  .preset-btn.active {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+  }
+  
+  .range-info {
+    margin-left: auto;
+    font-size: 13px;
+    color: #718096;
+    padding: 8px 12px;
+    background: #f7fafc;
+    border-radius: 6px;
+  }
+  
+  /* Main Content */
+  .main-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 20px;
+  }
+  
+  /* Widget Grid */
+  .widgets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 25px;
+    margin-bottom: 30px;
+  }
+  
+  .widget-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  
+  .widget-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  }
+  
+  .widget-header {
+    padding: 18px 20px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  
+  .widget-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2d3748;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .widget-body {
+    padding: 20px;
+  }
+  
+  /* Full width widgets */
+  .widget-full {
+    grid-column: 1 / -1;
+  }
+  
+  /* Status Badge */
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: #edf2f7;
+    border-radius: 12px;
+    font-size: 12px;
+    color: #4a5568;
+    margin-left: auto;
+  }
+  
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    background: #48bb78;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  
+  /* Loading State */
+  .loading {
+    text-align: center;
+    padding: 60px;
+    color: #718096;
+  }
+  
+  .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e2e8f0;
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  /* Responsive */
+  @media (max-width: 768px) {
+    .widgets-grid {
+      grid-template-columns: 1fr;
+    }
+    
+    .header h1 {
+      font-size: 24px;
+    }
+    
+    .preset-controls {
+      flex-wrap: wrap;
+    }
+    
+    .range-info {
+      width: 100%;
+      margin-left: 0;
+      margin-top: 10px;
+    }
+  }
+</style>
+
+<div class="header">
+  <div class="header-content">
+    <h1>📊 CGM Analytics</h1>
+    <div class="header-divider"></div>
+    <p>Interactive glucose monitoring dashboard</p>
+  </div>
+</div>
+
+<div class="calendar-section">
+  <div class="calendar-wrapper">
+    <div class="calendar-header">
+      <div class="calendar-title">
+        📅 Date Range Selection
+      </div>
+      <div class="date-range-shortcuts">
+        <button class="shortcut-btn" data-days="7">Last 7 days</button>
+        <button class="shortcut-btn active" data-days="14">Last 14 days</button>
+        <button class="shortcut-btn" data-days="30">Last 30 days</button>
+        <button class="shortcut-btn" data-days="90">Last 90 days</button>
+      </div>
+      <div class="calendar-nav">
+        <button class="nav-btn" id="navPrev">← Previous</button>
+        <div class="current-range" id="currentRange">Loading...</div>
+        <button class="nav-btn" id="navNext">Next →</button>
+      </div>
+    </div>
+    <div id="calendar"></div>
+  </div>
+</div>
+
+<div class="preset-controls">
+  <label>Target Range:</label>
+  <div class="preset-buttons">
+    <button class="preset-btn active" id="btnGeneral">General</button>
+    <button class="preset-btn" id="btnTight">Tight</button>
+    <button class="preset-btn" id="btnPregnancy">Pregnancy</button>
+  </div>
+  <div class="range-info" id="rangeInfo">
+    <span class="status-dot"></span>
+    <span id="rangeText">Loading...</span>
+  </div>
+</div>
+
+<div class="main-content">
+  <div id="loading" class="loading">
+    <div class="loading-spinner"></div>
+    <div>Loading CGM data...</div>
+  </div>
+  
+  <div id="widgets" style="display: none;">
+    <div class="widgets-grid">
+      <!-- Summary Card -->
+      <div class="widget-card">
+        <div class="widget-header">
+          <div class="widget-title">
+            📈 Summary Statistics
+            <span class="status-badge">
+              <span class="status-dot"></span>
+              Live
+            </span>
+          </div>
+        </div>
+        <div class="widget-body">
+          <div id="summary"></div>
+        </div>
+      </div>
+      
+      <!-- TIR Card -->
+      <div class="widget-card">
+        <div class="widget-header">
+          <div class="widget-title">
+            🎯 Time in Range
+          </div>
+        </div>
+        <div class="widget-body">
+          <div id="tir"></div>
+        </div>
+      </div>
+      
+      <!-- TIR Detailed - Full Width -->
+      <div class="widget-card widget-full">
+        <div class="widget-header">
+          <div class="widget-title">
+            📊 Detailed Time in Range Analysis
+          </div>
+        </div>
+        <div class="widget-body">
+          <div id="tir-detailed"></div>
+        </div>
+      </div>
+      
+      <!-- AGP Card - Full Width -->
+      <div class="widget-card widget-full">
+        <div class="widget-header">
+          <div class="widget-title">
+            📉 Ambulatory Glucose Profile (AGP)
+          </div>
+        </div>
+        <div class="widget-body">
+          <div id="agp"></div>
+        </div>
+      </div>
+      
+      <!-- Strips Card - Full Width -->
+      <div class="widget-card widget-full">
+        <div class="widget-header">
+          <div class="widget-title">
+            📅 Daily Glucose Patterns
+          </div>
+        </div>
+        <div class="widget-body">
+          <div id="strips"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<link rel="stylesheet" href="../dist/lib/style.css" />
+<script src="../dist/lib/cgm-tir.umd.js"></script>
+<script>
+  let currentPreset = 'N';
+  let calendarApi, summaryApi, tirApi, tirDetailedApi, agpApi, stripsApi;
+  let globalData = null;
+  let currentRange = null;
+  let dataStart = 0;
+  let dataEnd = 0;
+  let activeShortcut = 14; // Default to 14 days
+  
+  function updateRangeInfo() {
+    if (!globalData) return;
+    
+    const presetLabels = { 'N': 'General', 'T': 'Tight', 'P': 'Pregnancy' };
+    const presetKey = currentPreset === 'T' ? 'tight' : currentPreset === 'P' ? 'pregnancy' : 'general';
+    const isMmol = /mmol/i.test(globalData.units || 'mmol');
+    const unitType = isMmol ? 'mmol' : 'mg';
+    const ranges = globalData.targetRanges?.[presetKey]?.[unitType];
+    
+    if (ranges) {
+      const unit = isMmol ? 'mmol/L' : 'mg/dL';
+      const low = isMmol ? ranges.low.toFixed(1) : Math.round(ranges.low);
+      const high = isMmol ? ranges.high.toFixed(1) : Math.round(ranges.high);
+      document.getElementById('rangeText').textContent = 
+        `${presetLabels[currentPreset]}: ${low}–${high} ${unit}`;
+    }
+  }
+  
+  function updateCurrentRangeDisplay() {
+    if (!currentRange) return;
+    
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    
+    const start = formatter.format(new Date(currentRange.start));
+    const end = formatter.format(new Date(currentRange.end));
+    const dayCount = Math.ceil((currentRange.end - currentRange.start) / (24*60*60*1000)) + 1;
+    
+    document.getElementById('currentRange').textContent = 
+      `${start} – ${end} (${dayCount} days)`;
+      
+    // Update navigation buttons
+    const navPrev = document.getElementById('navPrev');
+    const navNext = document.getElementById('navNext');
+    
+    navPrev.disabled = currentRange.start <= dataStart;
+    navNext.disabled = currentRange.end >= dataEnd;
+  }
+  
+  function setDateRange(days) {
+    if (!calendarApi || !dataEnd) return;
+    
+    activeShortcut = days;
+    const DAY = 24*60*60*1000;
+    const endDay = Math.min(dataEnd, Date.UTC(new Date(dataEnd).getUTCFullYear(), new Date(dataEnd).getUTCMonth(), new Date(dataEnd).getUTCDate()) + (DAY - 1));
+    const startDay = Math.max(dataStart, endDay - (days - 1) * DAY);
+    
+    currentRange = { start: startDay, end: endDay };
+    calendarApi.setRange(startDay, endDay);
+    
+    // Update shortcut button states
+    document.querySelectorAll('.shortcut-btn').forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.dataset.days) === days);
+    });
+    
+    updateCurrentRangeDisplay();
+  }
+  
+  function navigateRange(direction) {
+    if (!currentRange || !activeShortcut) return;
+    
+    const DAY = 24*60*60*1000;
+    const rangeDays = activeShortcut;
+    const offset = direction * rangeDays * DAY;
+    
+    const newStart = Math.max(dataStart, currentRange.start + offset);
+    const newEnd = Math.min(dataEnd, currentRange.end + offset);
+    
+    // Ensure we maintain the same range length if possible
+    if (direction > 0 && newEnd === dataEnd) {
+      // Moving forward and hit end, adjust start
+      const adjustedStart = Math.max(dataStart, newEnd - (rangeDays - 1) * DAY);
+      currentRange = { start: adjustedStart, end: newEnd };
+    } else if (direction < 0 && newStart === dataStart) {
+      // Moving backward and hit start, adjust end
+      const adjustedEnd = Math.min(dataEnd, newStart + (rangeDays - 1) * DAY);
+      currentRange = { start: newStart, end: adjustedEnd };
+    } else {
+      currentRange = { start: newStart, end: newEnd };
+    }
+    
+    calendarApi.setRange(currentRange.start, currentRange.end);
+    updateCurrentRangeDisplay();
+  }
+  
+  function setPreset(preset) {
+    currentPreset = preset;
+    document.getElementById('btnGeneral').classList.toggle('active', preset === 'N');
+    document.getElementById('btnTight').classList.toggle('active', preset === 'T');
+    document.getElementById('btnPregnancy').classList.toggle('active', preset === 'P');
+    
+    // Update all widgets
+    if (calendarApi) calendarApi.setPreset(preset);
+    if (summaryApi) summaryApi.setPreset(preset);
+    if (tirApi) tirApi.setPreset(preset);
+    if (tirDetailedApi) tirDetailedApi.setPreset(preset);
+    if (agpApi) agpApi.setPreset(preset);
+    if (stripsApi) stripsApi.setPreset(preset);
+    
+    updateRangeInfo();
+  }
+  
+  // Load data and initialize widgets
+  fetch('../../cgm-data/cgm_data.json')
+    .then(r => r.json())
+    .then(data => {
+      globalData = data;
+      console.log('Data loaded. Target ranges:', data.targetRanges);
+      
+      const t0 = new Date(data.t0).getTime();
+      const tEnd = t0 + data.stepMs * (data.glucose.length - 1);
+      const DAY = 24*60*60*1000;
+      
+      // Set data boundaries
+      dataStart = t0;
+      dataEnd = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1);
+      
+      // Initial range (14 days by default)
+      const endDay = dataEnd;
+      const startDay = Math.max(dataStart, endDay - (activeShortcut - 1) * DAY);
+      const initialRange = { start: startDay, end: endDay };
+      currentRange = initialRange;
+      
+      // Create Calendar widget as the main controller
+      calendarApi = window.createTirCalendar('calendar', data, { 
+        initialRange: initialRange, 
+        preset: currentPreset,
+        monthLabels: true,
+        dataVisible: true,
+        canvasVisible: true
+      });
+      
+      // Create Summary widget
+      summaryApi = window.createCgmSummary('summary', data, { 
+        initialRange: initialRange, 
+        preset: currentPreset,
+        source: calendarApi
+      });
+      
+      // Create TIR widget
+      tirApi = window.createCgmTir('tir', data, { 
+        initialRange: initialRange, 
+        preset: currentPreset,
+        source: calendarApi
+      });
+      
+      // Create TIR Detailed widget
+      tirDetailedApi = window.createCgmTirDetailed('tir-detailed', data, { 
+        initialRange: initialRange, 
+        preset: currentPreset,
+        source: calendarApi
+      });
+      
+      // Create AGP widget
+      agpApi = window.createCgmAgp('agp', data, { 
+        initialRange: initialRange, 
+        preset: currentPreset,
+        source: calendarApi
+      });
+      
+      // Create Strips widget
+      stripsApi = window.createCgmStrips('strips', data, { 
+        initialRange: initialRange, 
+        preset: currentPreset,
+        source: calendarApi
+      });
+      
+      // Update range info and display
+      updateRangeInfo();
+      updateCurrentRangeDisplay();
+      
+      // Hide loading, show widgets
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('widgets').style.display = 'block';
+      
+      // Add calendar range change listener
+      calendarApi.on('rangechange', (detail) => {
+        currentRange = { start: detail.start, end: detail.end };
+        updateCurrentRangeDisplay();
+        // Clear active shortcut when manually selecting range
+        document.querySelectorAll('.shortcut-btn').forEach(btn => {
+          btn.classList.remove('active');
+        });
+        activeShortcut = null;
+      });
+      
+      // Add shortcut button handlers
+      document.querySelectorAll('.shortcut-btn').forEach(btn => {
+        btn.onclick = () => setDateRange(parseInt(btn.dataset.days));
+      });
+      
+      // Add navigation handlers
+      document.getElementById('navPrev').onclick = () => navigateRange(-1);
+      document.getElementById('navNext').onclick = () => navigateRange(1);
+      
+      // Add preset button handlers
+      document.getElementById('btnGeneral').onclick = () => setPreset('N');
+      document.getElementById('btnTight').onclick = () => setPreset('T');
+      document.getElementById('btnPregnancy').onclick = () => setPreset('P');
+      
+      // Keyboard shortcuts
+      window.addEventListener('keydown', (e) => {
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+        if (['input','textarea','select'].includes(tag)) return;
+        
+        if (e.key === '1') setPreset('N');
+        if (e.key === '2') setPreset('T');
+        if (e.key === '3') setPreset('P');
+      });
+      
+    })
+    .catch(err => {
+      console.error('Error loading data:', err);
+      document.getElementById('loading').innerHTML = 
+        '<div style="color: #e53e3e;">⚠️ Error loading CGM data</div>';
+    });
+</script>

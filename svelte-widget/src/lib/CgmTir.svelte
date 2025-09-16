@@ -1,28 +1,28 @@
 <script>
   import { onMount } from 'svelte'
+  import targets from '../../targets.json'
 
   export let data
   export let range = null // { start, end } in ms
-  export let preset = 'N'
+  export let preset = 'general' // 'general' | 'tight' | 'pregnancy'
 
   // Derived
   let time, values
   const dayMs = 24*60*60*1000
 
   const isMmol = ()=> /mmol/i.test(data?.units || 'mmol')
-  const TH = ()=> {
-    if (isMmol()){
-      if (preset==='T') return { vlow:3.0, low:3.9, high:7.8, vhigh:13.9 }
-      if (preset==='P') return { vlow:3.0, low:3.5, high:7.8, vhigh:13.9 }
-      return { vlow:3.0, low:3.9, high:10.0, vhigh:13.9 }
-    } else {
-      if (preset==='T') return { vlow:54, low:70, high:140, vhigh:250 }
-      if (preset==='P') return { vlow:54, low:63, high:140, vhigh:250 }
-      return { vlow:54, low:70, high:180, vhigh:250 }
-    }
-  }
+  const unitKey = ()=> isMmol() ? 'mmol' : 'mg'
+  const TH = ()=> targets[preset].thresholds[unitKey()]
 
-  const COLORS = { vlow:'#e57373', low:'#ff9e80', targ:'#86c89d', high:'#ffcc80', vhigh:'#ff8a65' }
+  let host
+  function cssVar(name, def){ try{ const v=(getComputedStyle(host).getPropertyValue(name)||'').trim(); return v||def }catch{return def} }
+  $: COLORS = {
+    vlow: cssVar('--cgm-very-low', '#e57373'),
+    low: cssVar('--cgm-low', '#ff9e80'),
+    targ: cssVar('--cgm-in-range', '#86c89d'),
+    high: cssVar('--cgm-high', '#ffcc80'),
+    vhigh: cssVar('--cgm-very-high', '#ff8a65')
+  }
 
   // results
   let pct = { vlow:0, low:0, targ:0, high:0, vhigh:0 }
@@ -70,7 +70,7 @@
   onMount(()=>{ initSeries() })
 </script>
 
-<div class="tirbar">
+<div class="tirbar" bind:this={host}>
   <div class="bar">
     <div class="seg vlow"  style="width:{pct.vlow}%"  title="Very low"></div>
     <div class="seg low"   style="width:{pct.low}%"   title="Low"></div>
@@ -79,30 +79,26 @@
     <div class="seg vhigh" style="width:{pct.vhigh}%" title="Very high"></div>
   </div>
   <div class="legend">
-    <div class="left"><span class="strong">{pct.targ.toFixed(1)}%</span> in range <span class="muted">· Goal >= 70%</span></div>
+    <div class="left"><span class="strong">{pct.targ.toFixed(1)}%</span> in range</div>
     <div class="right">
-      {#if /mmol/i.test(data?.units || 'mmol')}
-        {#if preset==='T'}Tight 3.9–7.8 mmol/L{:else if preset==='P'}Pregnancy 3.5–7.8 mmol/L{:else}General 3.9–10.0 mmol/L{/if}
-      {:else}
-        {#if preset==='T'}Tight 70–140 mg/dL{:else if preset==='P'}Pregnancy 63–140 mg/dL{:else}General 70–180 mg/dL{/if}
-      {/if}
+      {#if preset==='tight'}Tight{:else if preset==='pregnancy'}Pregnancy{:else}General{/if}
+      {#if isMmol()} {TH().low.toFixed(1)}–{TH().high.toFixed(1)} mmol/L{:else} {Math.round(TH().low)}–{Math.round(TH().high)} mg/dL{/if}
     </div>
   </div>
 </div>
 
 <style>
-  .tirbar { border:1px solid #eee; padding:10px; border-radius:8px; background:#fff; max-width:600px; }
+  .tirbar { border:1px solid var(--cgm-border, #eee); padding:10px; border-radius:8px; background: var(--cgm-bg, #fff); max-width:600px; }
   .bar { display:flex; height:16px; border-radius:8px; overflow:hidden; border:1px solid #ddd; }
   .seg { height:100%; }
-  .seg.vlow  { background: #e57373; }
-  .seg.low   { background: #ff9e80; }
-  .seg.targ  { background: #86c89d; }
-  .seg.high  { background: #ffcc80; }
-  .seg.vhigh { background: #ff8a65; }
+  .seg.vlow  { background: var(--cgm-very-low, #e57373); }
+  .seg.low   { background: var(--cgm-low, #ff9e80); }
+  .seg.targ  { background: var(--cgm-in-range, #86c89d); }
+  .seg.high  { background: var(--cgm-high, #ffcc80); }
+  .seg.vhigh { background: var(--cgm-very-high, #ff8a65); }
   .legend { margin-top:8px; display:flex; align-items:baseline; justify-content:space-between; }
   .legend .left { font-size:12px; }
-  .legend .right { font-size:12px; color:#777; margin-left:auto; text-align:right; }
+  .legend .right { font-size:12px; color: var(--cgm-muted, #777); margin-left:auto; text-align:right; }
   .strong { font-weight:700; }
-  .muted { color:#777; font-size:12px; }
+  .muted { color: var(--cgm-muted, #777); font-size:12px; }
 </style>
-

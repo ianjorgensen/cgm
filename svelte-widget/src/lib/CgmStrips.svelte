@@ -1,28 +1,24 @@
 <script>
   import { onMount } from 'svelte'
+  import targets from '../../targets.json'
+
   import * as d3 from 'd3'
 
   export let data
   export let range = null // { start, end } in ms
-  export let preset = 'N' // 'N','T','P'
+  export let preset = 'general' // 'general' | 'tight' | 'pregnancy'
   // Optional: color lines/fills across the entire padded week window.
   // Default is false so non-selected areas are greyed out.
   export let colorWholeWeek = false
 
   let svg
+  function cssVar(name, def){ try{ const v=(getComputedStyle(svg).getPropertyValue(name)||'').trim(); return v||def }catch{return def} }
 
   const isMmol = ()=> /mmol/i.test(data?.units || 'mmol')
-  function TH(){
-    if (isMmol()){
-      if (preset==='T') return { vlow:3.0, low:3.9, high:7.8 }
-      if (preset==='P') return { vlow:3.0, low:3.5, high:7.8 }
-      return { vlow:3.0, low:3.9, high:10.0 }
-    } else {
-      if (preset==='T') return { vlow:54, low:70, high:140 }
-      if (preset==='P') return { vlow:54, low:63, high:140 }
-      return { vlow:54, low:70, high:180 }
-    }
-  }
+  const unit = ()=> isMmol() ? 'mmol' : 'mg'
+  const unitPretty = ()=> isMmol() ? 'mmol/L':'mg/dL'
+
+  
 
   let time, values
   function initSeries(){
@@ -40,10 +36,15 @@
     const bbox = svg.getBoundingClientRect()
     const W = Math.max(360, bbox.width || 1100)
     const cols = 7
-    const gap = 0
-    const M = { l:50, r:20, t:30, b:10 }
-    const cw = Math.max(140, Math.floor((W - M.l - M.r - (cols-1)*gap)/cols))
-    const cellH = 86, innerT = 18
+    const colGap = 0
+    //const rowGap = 12
+    const rowGap = 30
+    //const M = { l:50, r:20, t:30, b:10 }
+    const M = { l:0, r:0, t:40, b:0 }
+    // Make day tiles narrow enough to fit 7 per row in typical demo widths
+    const cw = Math.max(100, Math.floor((W - M.l - M.r - (cols-1)*colGap)/cols))
+    // Slightly more compact rows: ~4/5 of previous height
+    const cellH = Math.round(86 * 0.8), innerT = Math.round(18 * 0.8)
 
     // Compute days padded to full weeks (Monday→Sunday)
     const dayMs = 24*60*60*1000
@@ -61,7 +62,7 @@
     const days = d3.timeDay.range(new Date(startDay), d3.timeDay.offset(new Date(endDay), 1)).map(d=>d.getTime())
     const nDays = days.length
     const rows = Math.ceil(nDays / cols)
-    const H = M.t + rows*cellH + (rows-1)*gap + M.b
+    const H = M.t + rows*cellH + (rows-1)*rowGap + M.b
     svg.setAttribute('height', H)
 
     // map absolute ms to day index map for faster lookups
@@ -78,19 +79,20 @@
     }
 
     // thresholds & scales
-    const th = TH()
+    const th = targets[preset].thresholds[unit()]
     const toLabel = v => isMmol() ? (Math.round(v*10)/10).toFixed(1) : Math.round(v).toString()
     const perHr = 60*60*1000 / data.stepMs
 
     // day-of-week headers across first row (Mon→Sun)
-    const weekdays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+    //const weekdays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+    const weekdays = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
     weekdays.forEach((d,i)=>{
       if (rows>0){
         d3.select(svg).append('text')
-          .attr('x', M.l + i*(cw+gap) + cw/2)
+          .attr('x', M.l + i*(cw+colGap) + cw/2)
           .attr('y', 16)
           .attr('text-anchor','middle')
-          .attr('fill','#555')
+          .attr('fill', cssVar('--cgm-muted', '#555'))
           .attr('font-size',10)
           .text(d)
       }
@@ -99,14 +101,14 @@
     // vertical end-of-day guides at day boundaries (right edge of each tile),
     // drawn per row with gaps around date numbers (not continuous across rows)
     for (let c=1;c<=cols-1;c++){
-      const xg = M.l + c*(cw+gap)
+      const xg = M.l + c*(cw+colGap)
       for (let r=0;r<rows;r++){
-        const gy = M.t + r*(cellH + gap)
+        const gy = M.t + r*(cellH + rowGap)
         d3.select(svg).append('line')
           .attr('x1', xg).attr('x2', xg)
           .attr('y1', gy + 4)
           .attr('y2', gy + cellH - 4)
-          .attr('stroke', '#e6e6e6').attr('stroke-width', 1)
+          .attr('stroke', cssVar('--cgm-grid', '#e6e6e6')).attr('stroke-width', 1)
       }
     }
 
@@ -115,9 +117,9 @@
     days.forEach((ds, idx)=>{
       const r = Math.floor(idx / cols)
       const c = idx % cols
-      const gx = M.l + c*(cw + gap)
-      const gy = M.t + r*(cellH + gap)
-      const g = root.append('g').attr('transform', `translate(${gx},${gy})`)
+      const gx = M.l + c*(cw + colGap)
+      const gy = M.t + r*(cellH + rowGap)
+      const g = root.append('g').attr('transform', `translate(${gx},${gy})`).attr('class','day')
       const x = d3.scaleLinear().domain([0, 24*perHr - 1]).range([0, cw])
       const y = d3.scaleLinear().domain(isMmol()? [0, 20]: [0, 360]).range([cellH-innerT, 0])
 
@@ -127,9 +129,9 @@
         g.append('rect')
           .attr('x',0).attr('y',y(th.high))
           .attr('width',cw).attr('height',Math.max(1,y(th.low)-y(th.high)))
-          .attr('fill','#efefef')
-        g.append('line').attr('x1',0).attr('x2',cw).attr('y1',y(th.high)).attr('y2',y(th.high)).attr('stroke','#2e7d32').attr('opacity',0.7)
-        g.append('line').attr('x1',0).attr('x2',cw).attr('y1',y(th.low)).attr('y2',y(th.low)).attr('stroke','#2e7d32').attr('opacity',0.7)
+          .attr('fill', cssVar('--cgm-target-band-bg', '#efefef'))
+        g.append('line').attr('x1',0).attr('x2',cw).attr('y1',y(th.high)).attr('y2',y(th.high)).attr('stroke', cssVar('--cgm-threshold', '#2e7d32')).attr('opacity',0.7)
+        g.append('line').attr('x1',0).attr('x2',cw).attr('y1',y(th.low)).attr('y2',y(th.low)).attr('stroke', cssVar('--cgm-threshold', '#2e7d32')).attr('opacity',0.7)
       }
 
       // Sort series and split by gaps > 2 readings (do not join across gaps)
@@ -152,7 +154,7 @@
         .x(d=>x(d.t/data.stepMs))
         .y0(d=>y(th.high))
         .y1(d=>y(d.v))
-      if (!isFuture) segs.forEach(seg=>{ if (seg.length>1) g.append('path').attr('d', areaAbove(seg)).attr('fill','#fdae61').attr('opacity',0.35) })
+      if (!isFuture) segs.forEach(seg=>{ if (seg.length>1) g.append('path').attr('d', areaAbove(seg)).attr('fill', cssVar('--cgm-high', '#fdae61')).attr('opacity',0.35) })
 
       // red area below target
       const areaBelow = d3.area()
@@ -160,7 +162,7 @@
         .x(d=>x(d.t/data.stepMs))
         .y0(d=>y(d.v))
         .y1(d=>y(th.low))
-      if (!isFuture) segs.forEach(seg=>{ if (seg.length>1) g.append('path').attr('d', areaBelow(seg)).attr('fill','#d73027').attr('opacity',0.25) })
+      if (!isFuture) segs.forEach(seg=>{ if (seg.length>1) g.append('path').attr('d', areaBelow(seg)).attr('fill', cssVar('--cgm-low-strong', '#d73027')).attr('opacity',0.25) })
 
       // glucose line colored by band (below=red, in=green, above=orange) per contiguous segment
       const lineAll = d3.line().x(d=>x(d.t/data.stepMs)).y(d=>y(d.v)).curve(d3.curveMonotoneX)
@@ -168,15 +170,15 @@
       const lowDef  = d=>Number.isFinite(d.v) && inside(d) && d.v < th.low
       const highDef = d=>Number.isFinite(d.v) && inside(d) && d.v > th.high
       const mk = (pred,color)=>d3.line().defined(pred).x(d=>x(d.t/data.stepMs)).y(d=>y(d.v)).curve(d3.curveMonotoneX)
-      const lineIn   = mk(inDef,'#1a9850')
-      const lineLow  = mk(lowDef,'#d73027')
-      const lineHigh = mk(highDef,'#fdae61')
+      const lineIn   = mk(inDef, cssVar('--cgm-in-range', '#1a9850'))
+      const lineLow  = mk(lowDef, cssVar('--cgm-low-strong', '#d73027'))
+      const lineHigh = mk(highDef, cssVar('--cgm-high', '#fdae61'))
       if (!isFuture) {
         segs.forEach(seg=>{
           if (seg.length>1){
             // outside selection: grey context
             const lineGrey = d3.line().defined(d=>Number.isFinite(d.v) && !inside(d)).x(d=>x(d.t/data.stepMs)).y(d=>y(d.v)).curve(d3.curveMonotoneX)
-            g.append('path').attr('d', lineGrey(seg)).attr('stroke','#c7c7c7').attr('fill','none').attr('stroke-width',1.2).attr('opacity',0.8)
+            g.append('path').attr('d', lineGrey(seg)).attr('stroke', cssVar('--cgm-context', '#c7c7c7')).attr('fill','none').attr('stroke-width',1.2).attr('opacity',0.8)
             g.append('path').attr('d', lineLow(seg)).attr('stroke','#d73027').attr('fill','none').attr('stroke-width',1.5)
             g.append('path').attr('d', lineHigh(seg)).attr('stroke','#fdae61').attr('fill','none').attr('stroke-width',1.5)
             g.append('path').attr('d', lineIn(seg)).attr('stroke','#1a9850').attr('fill','none').attr('stroke-width',1.5)
@@ -191,16 +193,38 @@
       const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
       const dateLabel = showMonth ? `1 ${monthNames[dObj.getMonth()]}` : String(dayNum)
       if (!isFuture){
-        g.append('text').attr('x', -12).attr('y', -8).attr('fill','#777').attr('font-size',10).attr('text-anchor','start').text(dateLabel)
+        g.append('text')
+          .attr('class','date-label')
+          .attr('x', 0).attr('y', -8)
+          .attr('fill','#777').attr('font-size',10).attr('text-anchor','start')
+          .text(dateLabel)
         if (r < rows - 1){
           g.append('text').attr('x', cw/2).attr('y', cellH-2).attr('text-anchor','middle').attr('fill','#777').attr('font-size',10).text('12pm')
         }
+      }
+
+      // Interactive layer: hover highlights date; click selects that day
+      if (!isFuture){
+        g.append('rect')
+          .attr('x', -12).attr('y', -10)
+          .attr('width', cw + 12).attr('height', cellH)
+          .attr('fill', 'transparent')
+          .on('mouseenter', ()=> g.classed('hover', true))
+          .on('mouseleave', ()=> g.classed('hover', false))
       }
     })
   }
 
   $: if (data && range && preset) draw()
+  $: if (svg) draw()
   onMount(()=>{ initSeries(); draw(); window.addEventListener('resize', draw) })
 </script>
 
 <svg bind:this={svg} style="width:100%; display:block;"></svg>
+
+<style>
+  :global(.day.hover .date-label) {
+    fill: #111 !important;
+    font-weight: 700;
+  }
+</style>

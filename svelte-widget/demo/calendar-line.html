@@ -1,0 +1,87 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Calendar Line Widget Demo</title>
+<style>
+  body { font: 12px system-ui, sans-serif; margin: 16px; }
+  #viz { max-width: 1100px; margin: 0 auto; }
+  #log { max-width: 1100px; margin: 12px auto 0; background:#f7f7f7; padding:8px; border-radius:6px; }
+  #presetControls { max-width:1100px; margin:8px auto 0; display:flex; gap:10px; align-items:center; }
+  #presetControls .btn { padding:6px 12px; border:1px solid #bbb; border-radius:10px; background: white; cursor:pointer; font-weight:600; }
+  #presetControls .btn:hover { background:#eee; }
+  #presetControls .btn.active { background:#333; color:#fff; border-color:#333; }
+  #presetControls .hint { margin-left:auto; color:#999; }
+</style>
+<div id="viz"></div>
+<pre id="log">range: </pre>
+<div id="presetControls">
+  <button id="btnGeneral" class="btn active">General</button>
+  <button id="btnTight" class="btn">Tight</button>
+  <button id="btnPregnancy" class="btn">Pregnancy</button>
+  <span class="hint">Shortcuts: 1=1d, 2=3d, 3=7d, 4=14d, 5=30d, 6=90d · Left/Right move · Shift+Left/Right jump · Up/Down or Wheel changes year</span>
+  <span class="hint">Toggle: T tight · P pregnancy</span>
+  </div>
+
+<link rel="stylesheet" href="../dist/lib/style.css" />
+<script src="../dist/lib/cgm-tir.umd.js"></script>
+<script>
+  // Minimal demo of CalendarLine; start at last 14 days
+  window.CGM_DEBUG = true
+  fetch('../../cgm-data/cgm_data.json').then(r=>r.json()).then(data => {
+    const t0 = new Date(data.t0).getTime()
+    const tEnd = t0 + data.stepMs * (data.glucose.length - 1)
+    const DAY = 24*60*60*1000
+    const endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
+    const startDay = Math.max(t0, endDay - 14*DAY + 1)
+
+    let api = null
+    let currentPreset = 'general'
+    let currentRange = { start: startDay, end: endDay }
+    const log = document.getElementById('log')
+    function updateLog(r){
+      log.textContent = 'range: ' + new Date(r.start).toISOString().slice(0,10) + ' → ' + new Date(r.end).toISOString().slice(0,10) + `  (${Math.ceil((r.end-r.start)/(24*60*60*1000))+1} days)`
+    }
+    // Mount single-line widget; in-widget toggle handles mode now
+    api = window.createTirCalendarLine('viz', data, { initialRange: currentRange, preset: currentPreset, selectionStroke: '#222', selectionFill: 'rgba(0,0,0,0.08)' })
+    api.on('ready', ({ start, end })=>{ currentRange = { start, end }; updateLog(currentRange) })
+    api.on('rangechange', ({ start, end })=>{ currentRange = { start, end }; updateLog(currentRange) })
+
+    const setActive=(p)=>{
+      document.getElementById('btnGeneral').classList.toggle('active',p==='general')
+      document.getElementById('btnTight').classList.toggle('active',p==='tight')
+      document.getElementById('btnPregnancy').classList.toggle('active',p==='pregnancy')
+    }
+    document.getElementById('btnGeneral').onclick=()=>{window.__preset='general';currentPreset='general';api.setPreset('general');setActive('general')}
+    document.getElementById('btnTight').onclick=()=>{window.__preset='tight';currentPreset='tight';api.setPreset('tight');setActive('tight')}
+    document.getElementById('btnPregnancy').onclick=()=>{window.__preset='pregnancy';currentPreset='pregnancy';api.setPreset('pregnancy');setActive('pregnancy')}
+
+    window.addEventListener('keydown',(e)=>{
+      const tag=(e.target&&e.target.tagName)?e.target.tagName.toLowerCase():''
+      if(['input','textarea','select'].includes(tag))return
+      if(e.key.toLowerCase()==='t'){
+        const cur=(window.__preset||'general');const nxt=(cur==='tight')?'general':'tight';window.__preset=nxt;api.setPreset(nxt);setActive(nxt);e.preventDefault()
+      }
+      if(e.key.toLowerCase()==='p'){
+        const cur=(window.__preset||'general');const nxt=(cur==='pregnancy')?'general':'pregnancy';window.__preset=nxt;api.setPreset(nxt);setActive(nxt);e.preventDefault()
+      }
+    })
+  }).catch(err => {
+    console.error('Failed to load data', err)
+    // Fallback: generate a tiny synthetic dataset (30 days at 5min)
+    const DAY=24*60*60*1000, STEP=5*60*1000
+    const now=new Date(); const endUTC=Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())+(DAY-1)
+    const startUTC=endUTC-29*DAY
+    const N=Math.round((30*DAY)/STEP)
+    const glucose=Array.from({length:N}, (_,i)=>{
+      const t=startUTC+i*STEP; const h=(t%(DAY))/(60*60*1000)
+      // simple diurnal wave with noise, mg/dL
+      return Math.max(40, Math.min(350, 110+40*Math.sin((h/24)*2*Math.PI)+20*(Math.random()-0.5)))
+    })
+    const data={ units:'mg/dL', t0:new Date(startUTC).toISOString(), stepMs:STEP, glucose }
+    let api = window.createTirCalendarLine('viz', data, { initialRange: { start: startUTC, end: endUTC }, preset: 'general', selectionStroke: '#222', selectionFill: 'rgba(0,0,0,0.08)' })
+    const log = document.getElementById('log')
+    api.on('rangechange', ({start,end,days}) => {
+      log.textContent = 'range: ' + new Date(start).toISOString().slice(0,10) + ' → ' + new Date(end).toISOString().slice(0,10) + `  (${days} days)`
+    })
+  })
+</script>
