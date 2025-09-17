@@ -9,8 +9,9 @@ import SwiftUI
 import UIKit
 
 struct ContentView: View {
-  @StateObject private var hk = HealthKitExporter()
+  @ObservedObject var hk: HealthKitExporter
   @StateObject private var gh = GitHubPusher()
+  @StateObject private var app = AppSettings()
   @StateObject private var web = LocalWebServer(baseURL: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!.appendingPathComponent("serve", isDirectory: true))
   @Environment(\.openURL) private var openURL
   @State private var shareURL: URL?
@@ -22,6 +23,8 @@ struct ContentView: View {
   @State private var healthMessage: String? = nil
   @State private var exportMessage: String? = nil
   @State private var serverMessage: String? = nil
+  @State private var serverEnabled: Bool = UserDefaults.standard.bool(forKey: "ServerEnabled_v1")
+  @State private var ghLoaded = false
 
   var body: some View {
     NavigationStack {
@@ -53,6 +56,9 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+          }
+          Toggle(isOn: Binding(get: { serverEnabled }, set: { setServerEnabled($0) })) {
+            Label(serverEnabled ? "Server Enabled" : "Server Disabled", systemImage: serverEnabled ? "chevron.left.slash.chevron.right" : "bolt.horizontal.circle")
           }
           .contentShape(Rectangle())
           .onTapGesture {
@@ -95,6 +101,25 @@ struct ContentView: View {
           NavigationLink(destination: GitHubSettingsView(gh: gh)) {
             Label("GitHub Settings", systemImage: "key.fill")
           }
+          .onAppear { if !ghLoaded { gh.load(); ghLoaded = true } }
+        }
+
+        Section(header: Text("Visualize")) {
+          NavigationLink(destination: AGPView(hk: hk, app: app)) {
+            Label("Ambulatory Glucose Profile", systemImage: "waveform.path.ecg")
+          }
+          NavigationLink(destination: TIRView(hk: hk, app: app)) {
+            Label("Time in Range", systemImage: "chart.bar.fill")
+          }
+          NavigationLink(destination: SummaryView(hk: hk, app: app)) {
+            Label("Summary", systemImage: "list.bullet.rectangle")
+          }
+          NavigationLink(destination: RecentDaysView(hk: hk, app: app)) {
+            Label("Recent Days", systemImage: "calendar")
+          }
+          NavigationLink(destination: ReportView(hk: hk, app: app)) {
+            Label("Report", systemImage: "doc.text.magnifyingglass")
+          }
         }
 
         Section(header: Text("Maintenance")) {
@@ -108,43 +133,7 @@ struct ContentView: View {
       }
       .navigationTitle("Ripple")
       .tint(Color(red: 0.10, green: 0.60, blue: 0.31))
-      .task {
-        gh.load(); hk.loadCache(); hk.loadSettings(); await hk.refreshSummary(); hk.startBackgroundDelivery()
-        // Prepare serve/ folder in Documents. If bundle contains defaults, copy them on first run.
-        let fm = FileManager.default
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let docServe = docs.appendingPathComponent("serve", isDirectory: true)
-        if !fm.fileExists(atPath: docServe.path) {
-          try? fm.createDirectory(at: docServe, withIntermediateDirectories: true)
-          if let bundleBase = Bundle.main.resourceURL?.appendingPathComponent("serve", isDirectory: true),
-             fm.fileExists(atPath: bundleBase.path) {
-            if let items = try? fm.contentsOfDirectory(atPath: bundleBase.path) {
-              for name in items {
-                let src = bundleBase.appendingPathComponent(name)
-                let dst = docServe.appendingPathComponent(name)
-                _ = try? fm.removeItem(at: dst)
-                _ = try? fm.copyItem(at: src, to: dst)
-              }
-            }
-          }
-        }
-        // Ensure an index.html exists so the root URL works on first run
-        let indexURL = docServe.appendingPathComponent("index.html")
-        if !fm.fileExists(atPath: indexURL.path) {
-          let html = """
-          <!doctype html>
-          <meta charset=\"utf-8\" />
-          <title>Local Server</title>
-          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-          <style>body{font:14px -apple-system, system-ui, sans-serif; padding:16px;} code{background:#f5f5f5; padding:2px 4px; border-radius:4px;}</style>
-          <h1>It works</h1>
-          <p>This page is served from <code>Documents/serve/index.html</code> inside the app.</p>
-          <p>Replace it by placing your own <code>index.html</code> and assets under <code>Documents/serve/</code> via the Files app.</p>
-          """
-          try? html.write(to: indexURL, atomically: true, encoding: .utf8)
-        }
-        web.start(preferredPort: 8080)
-      }
+      .task { if serverEnabled { prepareServeFolderIfNeeded(); web.start(preferredPort: 8080) } }
       .sheet(isPresented: $isSharing) { if let url = shareURL { ShareSheet(items: [url]) { present("Saved/Shared cgm_data.js", section: .export) } } }
       // navigation destination used instead of modal sheet for GitHub settings
       .alert("Clear local cache?", isPresented: $showClearConfirm) {
@@ -184,9 +173,12 @@ struct ContentView: View {
     present("Preparing upload…", section: .export)
     Task {
       do {
-        let res = try await hk.exportCGMJS(preferredUnits: .mmolL)
+        let useJSON = gh.path.lowercased().hasSuffix(".json")
+        let res = try await (useJSON ? hk.exportCGMJSON(preferredUnits: .mmolL) : hk.exportCGMJS(preferredUnits: .mmolL))
         let data = try Data(contentsOf: res.url)
-        let msg = "export: update cgm_data.js (\(res.count) pts, up to \(res.t1ISO))"
+        let msg = useJSON
+          ? "export: update cgm_data.json (\(res.count) pts, up to \(res.t1ISO))"
+          : "export: update cgm_data.js (\(res.count) pts, up to \(res.t1ISO))"
         try await gh.pushFile(data: data, message: msg)
         present("Pushed to GitHub", section: .export)
       } catch {
@@ -225,9 +217,50 @@ extension ContentView {
     serverMessage = "Copied: \(urlStr)"
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { serverMessage = nil }
   }
+  private func setServerEnabled(_ on: Bool) {
+    serverEnabled = on
+    UserDefaults.standard.set(on, forKey: "ServerEnabled_v1")
+    if on {
+      prepareServeFolderIfNeeded()
+      web.start(preferredPort: 8080)
+    } else { web.stop() }
+  }
+  private func prepareServeFolderIfNeeded() {
+    let fm = FileManager.default
+    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+    let docServe = docs.appendingPathComponent("serve", isDirectory: true)
+    if !fm.fileExists(atPath: docServe.path) {
+      try? fm.createDirectory(at: docServe, withIntermediateDirectories: true)
+      if let bundleBase = Bundle.main.resourceURL?.appendingPathComponent("serve", isDirectory: true),
+         fm.fileExists(atPath: bundleBase.path) {
+        if let items = try? fm.contentsOfDirectory(atPath: bundleBase.path) {
+          for name in items {
+            let src = bundleBase.appendingPathComponent(name)
+            let dst = docServe.appendingPathComponent(name)
+            _ = try? fm.removeItem(at: dst)
+            _ = try? fm.copyItem(at: src, to: dst)
+          }
+        }
+      }
+    }
+    let indexURL = docServe.appendingPathComponent("index.html")
+    if !fm.fileExists(atPath: indexURL.path) {
+      let html = """
+      <!doctype html>
+      <meta charset=\"utf-8\" />
+      <title>Local Server</title>
+      <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+      <style>body{font:14px -apple-system, system-ui, sans-serif; padding:16px;} code{background:#f5f5f5; padding:2px 4px; border-radius:4px;}</style>
+      <h1>It works</h1>
+      <p>This page is served from <code>Documents/serve/index.html</code> inside the app.</p>
+      <p>Replace it by placing your own <code>index.html</code> and assets under <code>Documents/serve/</code> via the Files app.</p>
+      """
+      try? html.write(to: indexURL, atomically: true, encoding: .utf8)
+    }
+  }
 }
 
-#Preview { ContentView() }
+#Preview { ContentView(hk: HealthKitExporter()) }
 
 
 // Footers for section messages (only render when non-nil)

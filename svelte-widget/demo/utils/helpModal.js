@@ -9,14 +9,11 @@ export function mountHelp(root = document.body, { shortcuts = [], title = 'Keybo
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="kbdTitle">
       <header>
         <h3 id="kbdTitle">${title}</h3>
-        <button class="btn" id="kbdClose" aria-label="Close">Close</button>
+        <button class="btn icon-btn" id="kbdClose" aria-label="Close" title="Close">×</button>
       </header>
       <div class="content">
         <div class="shortcuts-grid"></div>
       </div>
-      <footer>
-        <button class="btn" id="kbdClose2">Close</button>
-      </footer>
     </div>`
   const grid = overlay.querySelector('.shortcuts-grid')
   shortcuts.forEach(s=>{
@@ -30,18 +27,18 @@ export function mountHelp(root = document.body, { shortcuts = [], title = 'Keybo
   const close = ()=> toggle(false)
   const open = ()=> toggle(true)
   const onOverlayClick = (e)=>{ if (e.target === overlay) close() }
+  const onKey = (e)=>{ if (e.key === 'Escape' && overlay.classList.contains('show')) close() }
   const btn1 = overlay.querySelector('#kbdClose')
-  const btn2 = overlay.querySelector('#kbdClose2')
   overlay.addEventListener('click', onOverlayClick)
-  btn1.addEventListener('click', close)
-  btn2.addEventListener('click', close)
+  window.addEventListener('keydown', onKey)
+  if (btn1) btn1.addEventListener('click', close)
   return {
     open, close, toggle: ()=> toggle(!overlay.classList.contains('show')),
     destroy(){
       try{ overlay.removeEventListener('click', onOverlayClick) }catch{}
-      try{ btn1.removeEventListener('click', close); btn2.removeEventListener('click', close) }catch{}
+      try{ window.removeEventListener('keydown', onKey) }catch{}
+      try{ if (btn1) btn1.removeEventListener('click', close) }catch{}
       try{ overlay.remove() }catch{}
     }
   }
 }
-

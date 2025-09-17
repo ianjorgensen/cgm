@@ -10,6 +10,6 @@ import SwiftUI
 @main
 struct agp_iosApp: App {
   var body: some Scene {
-    WindowGroup { ContentView() }
+    WindowGroup { HomeView() }
   }
 }

@@ -173,6 +173,48 @@ final class HealthKitExporter: ObservableObject {
     return ExportResult(url: url, count: glucose.count, t0ISO: t0ISO, t1ISO: t1ISO, units: preferredUnits)
   }
 
+  func exportCGMJSON(preferredUnits: Units = .mmolL) async throws -> ExportResult {
+    if cached.isEmpty {
+      try await syncLatest()
+    }
+    guard let first = cached.first, let last = cached.last else {
+      throw NSError(domain: "HK", code: 1, userInfo: [NSLocalizedDescriptionKey: "No glucose samples found in Health app."])
+    }
+
+    let stepSec: TimeInterval = 5 * 60
+    let t0 = floor(first.ts / stepSec) * stepSec
+    let t1 = floor(last.ts / stepSec) * stepSec
+    let bins = max(0, Int((t1 - t0) / stepSec) + 1)
+    var out = Array<Double>(repeating: -1, count: bins)
+
+    for r in cached {
+      let idx = Int(floor((r.ts - t0) / stepSec))
+      if idx < 0 || idx >= bins { continue }
+      let mgdl = r.mgdl
+      let val: Double
+      if preferredUnits == .mgdL {
+        val = Double(Int(round(mgdl)))
+      } else {
+        let mmol = mgdl / 18.0
+        val = (mmol * 100).rounded() / 100
+      }
+      out[idx] = val
+    }
+
+    let iso = ISO8601DateFormatter()
+    let t0ISO = iso.string(from: Date(timeIntervalSince1970: t0))
+    let stepMs = Int(stepSec * 1000)
+    let t1ISO = iso.string(from: Date(timeIntervalSince1970: t1))
+
+    struct Payload: Codable { let units: String; let t0: String; let stepMs: Int; let glucose: [Double] }
+    let payload = Payload(units: preferredUnits.rawValue, t0: t0ISO, stepMs: stepMs, glucose: out)
+    let data = try JSONEncoder().encode(payload)
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("cgm_data.json")
+    try data.write(to: url, options: .atomic)
+
+    return ExportResult(url: url, count: out.count, t0ISO: t0ISO, t1ISO: t1ISO, units: preferredUnits)
+  }
+
   // MARK: - HealthKit
   private func fetchAllGlucose() async throws -> [HKQuantitySample] {
     try await withCheckedThrowingContinuation { cont in
@@ -203,6 +245,7 @@ final class HealthKitExporter: ObservableObject {
 
   // MARK: - Background delivery with observer + anchored query
   func startBackgroundDelivery() {
+    if observerQuery != nil { backgroundEnabled = true; return }
     // Set up observer (idempotent) and enable background delivery
     let q = HKObserverQuery(sampleType: glucoseType, predicate: nil) { [weak self] _, completion, error in
       guard let self = self else { completion(); return }

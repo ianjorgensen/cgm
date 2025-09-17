@@ -6,7 +6,7 @@ final class GitHubPusher: ObservableObject {
   @Published var owner: String = "ianjorgensen"
   @Published var repo: String = "cgm"
   @Published var branch: String = "main"
-  @Published var path: String = "cgm-data/cgm_data.js"
+  @Published var path: String = "cgm-data/cgm_data.json"
   @Published var hasToken: Bool = false
 
   private let settingsKey = "GitHubSettings_v1"
@@ -19,6 +19,11 @@ final class GitHubPusher: ObservableObject {
     if let data = ud.data(forKey: settingsKey),
        let s = try? JSONDecoder().decode(Settings.self, from: data) {
       owner = s.owner; repo = s.repo; branch = s.branch; path = s.path
+      // Migrate legacy default path from .js to .json once
+      if path.lowercased().hasSuffix(".js") {
+        path = String(path.dropLast(2)) + "json"
+        save()
+      }
     } else {
       // Persist the built-in defaults on first run so they stick
       save()

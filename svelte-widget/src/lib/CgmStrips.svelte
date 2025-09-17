@@ -110,7 +110,9 @@
         const idxRight = rowStartIdx + c
         const dsLeft = days[idxLeft]
         const dsRight = days[idxRight]
+        // Skip future-only separators
         if ((dsLeft!==undefined && dsLeft>today) && (dsRight!==undefined && dsRight>today)) continue
+        // Draw the separator at the boundary between today and the future
         const gy = M.t + r*(cellH + rowGap)
         d3.select(svg).append('line')
           .attr('x1', xg).attr('x2', xg)
@@ -122,6 +124,8 @@
 
     // draw each cell (day)
     // `today` computed above for guide lines reuse
+    const fmtMon = d3.timeFormat('%b'), fmtYear = d3.timeFormat('%Y')
+    const ord = (n)=>{ const v=n%100; if(v<11||v>13){ const u=n%10; if(u===1) return 'st'; if(u===2) return 'nd'; if(u===3) return 'rd' } return 'th' }
     days.forEach((ds, idx)=>{
       const r = Math.floor(idx / cols)
       const c = idx % cols
@@ -197,15 +201,20 @@
       // date number on top-left and 12pm label centered
       const dObj = new Date(ds)
       const dayNum = dObj.getDate()
-      const showMonth = dayNum===1
       const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-      const dateLabel = showMonth ? `1 ${monthNames[dObj.getMonth()]}` : String(dayNum)
+      const briefLabel = String(dayNum)
+      const fullLabel = `${dayNum}${ord(dayNum)} ${monthNames[dObj.getMonth()]} ${dObj.getFullYear()}`
       if (!isFuture){
         g.append('text')
-          .attr('class','date-label')
+          .attr('class','date-label date-brief')
           .attr('x', 0).attr('y', -8)
           .attr('fill','#777').attr('font-size',10).attr('text-anchor','start')
-          .text(dateLabel)
+          .text(briefLabel)
+        g.append('text')
+          .attr('class','date-label date-full')
+          .attr('x', 0).attr('y', -8)
+          .attr('fill','#777').attr('font-size',10).attr('text-anchor','start')
+          .text(fullLabel)
         if (r < rows - 1){
         g.append('text').attr('x', cw/2).attr('y', cellH-2).attr('text-anchor','middle').attr('fill', cssVar('--cgm-axis-color', '#777')).attr('font-size',10).text('12pm')
         }
@@ -216,9 +225,10 @@
         g.append('rect')
           .attr('x', -12).attr('y', -10)
           .attr('width', cw + 12).attr('height', cellH)
-          .attr('fill', 'transparent')
-          .on('mouseenter', ()=> g.classed('hover', true))
-          .on('mouseleave', ()=> g.classed('hover', false))
+          .attr('fill', 'rgba(0,0,0,0.001)')
+          .style('pointer-events','all')
+          .on('mouseenter', ()=> { g.classed('hover', true) })
+          .on('mouseleave', ()=> { g.classed('hover', false) })
       }
     })
   }
@@ -233,6 +243,9 @@
 <style>
   :global(.day.hover .date-label) {
     fill: var(--cgm-text, #111) !important;
-    font-weight: 700;
+    font-weight: inherit;
   }
+  :global(.day .date-full) { display: none; }
+  :global(.day.hover .date-full) { display: inline; }
+  :global(.day.hover .date-brief) { display: none; }
 </style>

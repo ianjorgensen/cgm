@@ -1,6 +1,6 @@
 <script>
   import { onMount, createEventDispatcher } from 'svelte'
-  import CgmCalendar from './CgmCalendar.svelte'
+  // Stacked calendar view removed; this component renders the line view only
   import * as d3 from 'd3'
   import targets from '../../targets.json'
 
@@ -28,7 +28,6 @@
   let canvas
   let host
   let periodTextEl
-  let childCalendar
 
   // Layout constants
   // Remove top margin but keep original row height
@@ -316,9 +315,18 @@
       const ax = M.l - 5, ah = 5, aw = 4
       ctx.beginPath(); ctx.moveTo(ax, cy); ctx.lineTo(ax + aw, cy - ah); ctx.lineTo(ax + aw, cy + ah); ctx.closePath(); ctx.fill()
     }
-    if (scrollDayOffset + visibleDays < totalDays - 0.01){
-      const ax = cssW - M.r + 5, ah = 5, aw = 4
-      ctx.beginPath(); ctx.moveTo(ax, cy); ctx.lineTo(ax - aw, cy - ah); ctx.lineTo(ax - aw, cy + ah); ctx.closePath(); ctx.fill()
+    // Draw a `>|` affordance to jump to today whenever the selection does not end on today
+    {
+      const endIdx = Math.floor((Math.max(firstAll, Math.min(lastAll, viewEnd)) - firstAll)/dayMs)
+      const todayIdx = Math.floor((lastAll - firstAll)/dayMs)
+      const moreRight = (scrollDayOffset + visibleDays) < (totalDays - 0.01)
+      const needsToday = (endIdx < todayIdx) || (endIdx === todayIdx && moreRight)
+      if (needsToday){
+        const tx = cssW - M.r + 2
+        ctx.font = '16px system-ui, sans-serif'
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+        ctx.fillText('>|', tx, cy)
+      }
     }
     ctx.restore()
   }
@@ -344,7 +352,7 @@
     if (externalRange && typeof externalRange.start === 'number' && typeof externalRange.end === 'number') {
       const s = externalRange.start, e = externalRange.end
       if (s !== viewStart || e !== viewEnd) {
-        viewStart = s; viewEnd = e; syncScrollToRange(); emitRange(); updateAfterRange()
+        viewStart = s; viewEnd = e; ensureSelectionVisible(); emitRange(); updateAfterRange()
       }
     }
   }
@@ -383,7 +391,7 @@
     }
     viewStart = start
     viewEnd = end
-    syncScrollToRange(); emitRange(); updateAfterRange()
+    ensureSelectionVisible(); emitRange(); updateAfterRange()
   }
 
   function step(dir){
@@ -392,7 +400,7 @@
     const span = Math.max(dayMs, e - s)
     viewStart = Math.max(firstAll, Math.min(lastAll - span, s))
     viewEnd   = Math.min(lastAll, viewStart + span)
-    syncScrollToRange(); emitRange(); updateAfterRange()
+    ensureSelectionVisible(); emitRange(); updateAfterRange()
   }
 
   function jump(dir){
@@ -400,17 +408,19 @@
     step(d/dayMs)
   }
 
-  // When range changes via keyboard or programmatically, update the active view
-  function updateAfterRange(){
-    if (viewMode === 'line') draw()
-    else if (childCalendar) try{ childCalendar.$set({ externalRange: { start: viewStart, end: viewEnd } }) }catch{}
+  // Jump selection to the latest day ("today"), preserving current span
+  function goToToday(){
+    const days = spanDays()
+    const end = lastAll
+    const start = Math.max(firstAll, end - days*dayMs + 1)
+    viewStart = start; viewEnd = end
+    ensureSelectionVisible(); emitRange(); updateAfterRange()
   }
 
-  // When switching to stacked mode, ensure child mounts fresh and sizes correctly
-  $: if (viewMode === 'stacked' && showCanvas) {
-    // Defer a resize to let layout settle then force child redraw
-    setTimeout(()=>{ try{ window.dispatchEvent(new Event('resize')) }catch{} }, 0)
-  }
+  // When range changes via keyboard or programmatically, update the active view
+  function updateAfterRange(){ draw() }
+
+  // Stacked mode has been removed
 
   // Viewport scroll helpers (continuous)
   function syncScrollToRange(){
@@ -437,6 +447,28 @@
     const dayWidth = plotW / 365
     const visibleDays = plotW / dayWidth
     scrollDayOffset = Math.max(0, Math.min(totalDays - visibleDays, scrollDayOffset))
+  }
+
+  // Keep selection visible without re-centering the viewport
+  function viewport(){
+    const cssW = Math.max(320, canvas?.getBoundingClientRect().width || 900)
+    const plotW = cssW - M.l - M.r
+    const dayWidth = plotW / 365
+    const visibleDays = plotW / dayWidth
+    return { cssW, plotW, dayWidth, visibleDays }
+  }
+  function ensureSelectionVisible(){
+    const { visibleDays } = viewport()
+    const totalDays = Math.round((lastAll - firstAll)/dayMs) + 1
+    const left = scrollDayOffset
+    const right = scrollDayOffset + visibleDays
+    const selStartIdx = Math.floor((Math.max(firstAll, Math.min(lastAll, viewStart)) - firstAll)/dayMs)
+    const selEndIdx = Math.floor((Math.max(firstAll, Math.min(lastAll, viewEnd)) - firstAll)/dayMs)
+    let newLeft = left
+    if (selStartIdx < left) newLeft = selStartIdx
+    if (selEndIdx > right) newLeft = selEndIdx - visibleDays
+    newLeft = Math.max(0, Math.min(totalDays - visibleDays, newLeft))
+    scrollDayOffset = newLeft
   }
 
   let interactionsActive = false
@@ -472,6 +504,18 @@
     hDown = (e)=>{
       const info = timeFromEvent(e); if (!info) return
       const { dayWidth, x0, x1 } = geometry()
+      // Click on right callout (>|) to jump to today
+      {
+        const callPad = 24
+        const endIdx = Math.floor((Math.max(firstAll, Math.min(lastAll, viewEnd)) - firstAll)/dayMs)
+        const todayIdx = Math.floor((lastAll - firstAll)/dayMs)
+        const { x0, x1: x1_, dayWidth } = geometry()
+        const visibleDaysLocal = (x1_ - x0) / dayWidth
+        const totalDays = Math.round((lastAll - firstAll)/dayMs) + 1
+        const moreRight = (scrollDayOffset + visibleDaysLocal) < (totalDays - 0.01)
+        const needsToday = (endIdx < todayIdx) || (endIdx === todayIdx && moreRight)
+        if (needsToday && info.rawX >= x1 - 2 && info.rawX <= x1 + callPad){ goToToday(); return }
+      }
       const xFromTime=(tt)=> x0 + (((tt - firstAll)/dayMs) - scrollDayOffset) * dayWidth
       const xA = xFromTime(viewStart)
       const xB = xFromTime(viewEnd) + 1
@@ -501,6 +545,18 @@
         const xFromTime=(tt)=> x0 + (((tt - firstAll)/dayMs) - scrollDayOffset) * dayWidth
         const xA = xFromTime(viewStart)
         const xB = xFromTime(viewEnd) + 1
+        // pointer cursor when hovering the right callout (jump to today)
+        {
+          const { x0, x1 } = geometry()
+          const endIdx = Math.floor((Math.max(firstAll, Math.min(lastAll, viewEnd)) - firstAll)/dayMs)
+          const todayIdx = Math.floor((lastAll - firstAll)/dayMs)
+          const dayWidthLocal = (function(){ const g=geometry(); return g.dayWidth })()
+          const visibleDaysLocal = (x1 - x0) / dayWidthLocal
+          const totalDays = Math.round((lastAll - firstAll)/dayMs) + 1
+          const moreRight = (scrollDayOffset + visibleDaysLocal) < (totalDays - 0.01)
+          const needsToday = (endIdx < todayIdx) || (endIdx === todayIdx && moreRight)
+          if (needsToday && info.rawX >= x1 - 2 && info.rawX <= x1 + 24){ cvs.style.cursor='pointer'; return }
+        }
         if (info.x>=xA-nearPx && info.x<=xA+nearPx) cvs.style.cursor='col-resize'
         else if (info.x>=xB-nearPx && info.x<=xB+nearPx) cvs.style.cursor='col-resize'
         else if (info.x>xA && info.x<xB) cvs.style.cursor='grab'
@@ -550,7 +606,8 @@
         let ns = startAtDown + deltaDays*day; ns = Math.max(firstAll, Math.min(lastAll - span + 1, ns))
         viewStart = ns; viewEnd = ns + span - 1
       }
-      // Do not recenter while dragging; just update selection and redraw
+      // Ensure selection stays visible while dragging; then update
+      ensureSelectionVisible();
       emitRange(); draw()
     }
     hUp = ()=>{ if(dragging){ dragging=false; mode=null; tAnchor=null; document.body.style.userSelect=''; cvs.style.cursor='crosshair' } }
@@ -570,8 +627,8 @@
 
   // Re-aggregate when preset changes
   $: if (values && preset){ aggregate(); updateAfterRange() }
-  // Activate interactions only when the line canvas is visible
-  $: { if (showCanvas && viewMode==='line') mountInteractions(); else unmountInteractions() }
+  // Activate interactions only when the canvas is visible (line view only)
+  $: { if (showCanvas) mountInteractions(); else unmountInteractions() }
 
   onMount(()=>{
     ctx = canvas.getContext('2d')
@@ -621,27 +678,15 @@
 
 <div class="cgm-widget" bind:this={host} style="contain: layout; display:flex; flex-direction:column;">
   <div id="controlBar" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 0px;">
-    <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end; flex:0 0 auto;">
-        <!--<button type="button" class="qbtn" on:click={()=>{ showCanvas = !showCanvas }} title="Hide/show calendar canvas">{showCanvas ? '↑' : '↓'}</button>-->
-        {#if showCanvas}
-          <button
-            type="button"
-            class="qbtn"
-            on:click={()=>{ viewMode = (viewMode==='line'?'stacked':'line'); updateAfterRange() }}
-            title={viewMode==='line' ? 'Show years stacked' : 'Show years inline'}
-            aria-label={viewMode==='line' ? 'Show years stacked' : 'Show years inline'}
-          >≡</button>
-        {/if}
+    <!-- Left side: Show/Hide canvas toggle -->
+    <div style="display:flex; gap:8px; align-items:center; justify-content:flex-start; flex:0 0 auto;">
+      <button type="button" class="qbtn" on:click={()=>{ showCanvas = !showCanvas }}
+        title={showCanvas ? 'Hide calendar view' : 'Show calendar view'}
+        aria-label={showCanvas ? 'Hide calendar view' : 'Show calendar view'}>{showCanvas ? '↑' : '↓'}</button>
     </div>
     <!--<div bind:this={periodTextEl} style="text-align:left; color:#000; font-size:12px; font-weight:600; min-width:160px; flex:1 1 auto;">{periodLabel}</div>-->
     <div style="display:flex; align-items:center; gap:20px; justify-content:flex-end; margin-left:auto;">
-      <!-- Canvas visibility toggle (placed to the left of nav arrows) -->
-      <!--<div style="display:flex; gap:8px; align-items:center; justify-content:flex-end; flex:0 0 auto;">
-        <button class="navbtn" on:click={()=>jump(-1)} title="Jump back by current span">&#124;&lt;</button>
-        <button class="navbtn" on:click={()=>step(-1)} title="Step back 1 day">&lt;</button>
-        <button class="navbtn" on:click={()=>step(1)} title="Step forward 1 day">&gt;</button>
-        <button class="navbtn" on:click={()=>jump(1)} title="Jump forward by current span">&gt;&#124;</button>
-      </div>-->
+      <!-- right side: quick spans -->
       <div style="display:flex; gap:16px; flex-wrap:wrap; justify-content:flex-end;">
         <button type="button" class={`qbtn ${activeSpan===1 ? 'active' : ''}`} on:click={()=>setSpan(1)}>1d</button>
         <button type="button" class={`qbtn ${activeSpan===7 ? 'active' : ''}`} on:click={()=>setSpan(7)}>1w</button>
@@ -652,27 +697,8 @@
       </div>
     </div>
   </div>
-  {#if showCanvas && viewMode==='stacked'}
-    <div class="stacked-container" style="position:relative; z-index:1;">
-      <div class="stack-embed" style="width:100%; position:relative; z-index:1;">
-      <CgmCalendar
-        bind:this={childCalendar}
-        data={data}
-        initialRange={{ start: viewStart, end: viewEnd }}
-        preset={preset}
-        showMonthLabels={showMonthLabels}
-        showData={showData}
-        showCanvas={true}
-        selectionFill={selectionFill}
-        selectionStroke={selectionStroke}
-        on:rangechange={(e)=>{ const d=e.detail; viewStart=d.start; viewEnd=d.end; emitRange() }}
-        on:ready={(e)=>{ const d=e.detail; viewStart=d.start; viewEnd=d.end; dispatch('ready', d) }}
-      />
-      </div>
-    </div>
-  {/if}
-  <!-- Primary/secondary controlled by viewMode by toggling visibility -->
-  <div class="line-container" style={`display:${showCanvas && viewMode==='line' ? 'block':'none'};`}>
+  <!-- Line view only -->
+  <div class="line-container" style={`display:${showCanvas ? 'block':'none'};`}>
     <canvas bind:this={canvas} style="width:100%; border:0; padding-bottom: 10px;"></canvas>
   </div>
 </div>

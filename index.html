@@ -177,8 +177,18 @@
   <div id="openHelp" class="help-kbd" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</div>
 
 <script type="module">
-import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
-import { units, t0, stepMs, glucose } from "./cgm-data/cgm_data.js";
+import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm'
+// Prefer JSON data if present; fall back to JS module for compatibility
+let units, t0, stepMs, glucose
+try {
+  const res = await fetch('./cgm-data/cgm_data.json?ts=' + Date.now(), { cache: 'no-store' })
+  if (!res.ok) throw new Error('Missing JSON')
+  const j = await res.json()
+  ;({ units, t0, stepMs, glucose } = j)
+} catch (err) {
+  const mod = await import('./cgm-data/cgm_data.js?v=' + Date.now())
+  units = mod.units; t0 = mod.t0; stepMs = mod.stepMs; glucose = mod.glucose
+}
 
 const M={t:20,r:50,b:30,l:50};
 const canvas=document.getElementById("chart");

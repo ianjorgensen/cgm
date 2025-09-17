@@ -15,7 +15,7 @@ struct GitHubSettingsView: View {
           HStack { Text("Owner"); Spacer(); TextField("user or org", text: $gh.owner).multilineTextAlignment(.trailing) }
           HStack { Text("Repo"); Spacer(); TextField("name", text: $gh.repo).multilineTextAlignment(.trailing) }
           HStack { Text("Branch"); Spacer(); TextField("main", text: $gh.branch).multilineTextAlignment(.trailing) }
-          HStack { Text("Path"); Spacer(); TextField("cgm-data/cgm_data.js", text: $gh.path).textInputAutocapitalization(.never).autocorrectionDisabled().multilineTextAlignment(.trailing) }
+          HStack { Text("Path"); Spacer(); TextField("cgm-data/cgm_data.json", text: $gh.path).textInputAutocapitalization(.never).autocorrectionDisabled().multilineTextAlignment(.trailing) }
           if !gh.owner.isEmpty && !gh.repo.isEmpty {
             HStack { Text("Summary"); Spacer(); Text("\(gh.owner)/\(gh.repo)@\(gh.branch)").foregroundStyle(.secondary) }
           }

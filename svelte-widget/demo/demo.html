@@ -1,36 +1,148 @@
 <!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:,">
 <title>Ripple</title>
 <style>
-  body { font: 12px system-ui, sans-serif; margin: 0; padding: 20px; }
-  .wrap { max-width: 800px; margin: 0 auto; padding: 0 20px; }
-  #viz { width: 725px; margin: 0 32px; margin-bottom: 20px }
-  .row { display:flex; gap:20px; align-items:flex-start; margin-bottom: 10px; }
-  .row > div { flex:1 1 0; min-width:0; }
-  #agp, #strips { margin-top: 10px; }
+  body {
+    font: 12px system-ui, sans-serif;
+    margin: 0;
+    padding: 20px;
+  }
+  .wrap {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+  #viz {
+    width: 725px;
+    margin: 0 32px 20px;
+  }
+  .row {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+  .row > div {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  #agp, #strips {
+    margin-top: 10px;
+  }
   /* Strips adapts to container */
-  #strips {     width: 688px;
+  #strips {
+    width: 688px;
     margin-top: 20px;
-    margin-left: 51px; }
-  #tirdetailed {padding-left: 11px }
-  #summary {padding-right: 45px }
-  #controlBar {padding: 0px}
+    margin-left: 51px;
+  }
+  #tirdetailed {
+    padding-left: 11px;
+  }
+  #summary {
+    padding-right: 45px;
+  }
+  #controlBar {
+    padding: 0;
+  }
 
   /* Shortcuts modal */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 9999; }
-  .modal-overlay.show { display: flex; }
-  .modal { background: #fff; width: min(800px, 92vw); max-height: 84vh; overflow: auto; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
-  .modal header { padding: 14px 18px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content: space-between; }
-  .modal header h3 { margin: 0; font-size: 16px; }
-  .modal .content { padding: 14px 18px; }
-  .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; background:#f3f3f3; border:1px solid #e1e1e1; padding:2px 6px; border-radius:6px; }
-  .shortcuts-grid { display:grid; grid-template-columns: 1fr 2fr; gap: 10px 16px; align-items:center; }
-  .modal footer { padding:12px 18px; border-top:1px solid #eee; display:flex; justify-content:flex-end; }
-  .btn { padding:6px 12px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
-  .btn:hover { background:#f7f7f7; }
-  .kbd-fab { position: fixed; right: 16px; bottom: 0px; background: transparent; border: 0; box-shadow: none; padding: 0; cursor: pointer; z-index: 10000; opacity: 0.7; color: #555; font-size: 42px; line-height: 1; }
-  .kbd-fab:hover { opacity: 1; }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.25);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+  .cgm-dark .modal-overlay {
+    background: rgba(255,255,255,0.25);
+  }
+  .modal-overlay.show {
+    display: flex;
+  }
+  .modal {
+    background: var(--cgm-bg, #fff);
+    color: var(--cgm-text, #111);
+    width: min(720px, 92vw);
+    max-height: 80vh;
+    overflow: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    border: 1px solid var(--cgm-border, #eee);
+  }
+  .modal header {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal header h3 {
+    margin: 0;
+    font-size: 12px;
+  }
+  .modal .content {
+    padding: 12px 16px;
+  }
+  .kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    background: var(--cgm-target-band-bg, #f3f3f3);
+    border: 1px solid var(--cgm-border, #e1e1e1);
+    padding: 2px 6px;
+    border-radius: 6px;
+  }
+  .shortcuts-grid {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 10px 16px;
+    align-items: center;
+  }
+  .btn {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--cgm-border, #ddd);
+    background: var(--cgm-bg, #fff);
+    color: var(--cgm-text, #111);
+    cursor: pointer;
+  }
+  .btn:hover {
+    background: rgba(0,0,0,0.03);
+  }
+  .modal header .icon-btn {
+    background: transparent !important;
+    border: 0;
+    font-size: 18px;
+    line-height: 1;
+    padding: 2px 6px;
+    color: var(--cgm-text, #111);
+    opacity: 0.7;
+  }
+  .modal header .icon-btn:hover {
+    opacity: 1;
+  }
+  .kbd-fab {
+    position: fixed;
+    right: 16px;
+    bottom: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+    cursor: pointer;
+    z-index: 10000;
+    opacity: 0.7;
+    color: #555;
+    font-size: 42px;
+    line-height: 1;
+  }
+  .kbd-fab:hover {
+    opacity: 1;
+  }
+  .cgm-dark .kbd-fab {
+    color: #eee;
+  }
 
   /* Theming palettes */
   .cgm-theme {
@@ -58,7 +170,6 @@
     --cgm-target-band-bg: #333333; --cgm-context: #cfcfcf; --cgm-arrow: #f0f0f0;
     --cgm-outside-light: #3a3a3a; --cgm-outside-mid: #4a4a4a; --cgm-outside-dark: #5a5a5a;
   }
-  /* Button removed; theme toggled via keyboard (D) */
 </style>
 
 <body id="themeRoot" class="cgm-theme">
@@ -71,6 +182,7 @@
     <div id="agp"></div>
     <div id="strips"></div>
   </div>
+  <button id="helpFab" class="kbd-fab" title="Keyboard Shortcuts">⌨</button>
 </body>
 
 <link rel="stylesheet" href="../dist/lib/style.css" />
@@ -79,7 +191,6 @@
   import { lastNDaysRange } from './utils/dateRange.js'
   import { initShortcuts } from './utils/shortcuts.js'
   import { mountHelp } from './utils/helpModal.js'
-  // Combined demo: TIR calendar + Summary synced to the selection
   // Initialize theme from localStorage before rendering widgets
   try {
     const root = document.getElementById('themeRoot')
@@ -127,5 +238,7 @@
         h: ()=>{ help.toggle(); return true }
       }
     })
+    // FAB click opens help
+    try { document.getElementById('helpFab')?.addEventListener('click', ()=>help.toggle()) } catch {}
   })
 </script>
