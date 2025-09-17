@@ -1,7 +1,7 @@
 import SwiftUI
 import Charts
 
-struct AGPPoint: Identifiable {
+struct AGPPoint: Identifiable, Equatable {
   let id = UUID()
   let time: Date
   let p10: Double?
@@ -27,9 +27,6 @@ struct AGPView: View {
         .font(.title3).bold()
         .padding(.horizontal)
 
-      if isLoading {
-        ProgressView().frame(height: 260).padding(.horizontal)
-      }
       Chart(points) {
         // 10–90 band (orange)
         if let lo = $0.p10, let hi = $0.p90 {
@@ -92,6 +89,8 @@ struct AGPView: View {
         }
       }
       .padding(.horizontal)
+      .animation(.easeInOut(duration: 0.35), value: points)
+      .overlay(alignment: .center) { if isLoading { ProgressView().controlSize(.regular).padding() } }
       .frame(minHeight: 260)
 
       HStack(spacing: 16) {

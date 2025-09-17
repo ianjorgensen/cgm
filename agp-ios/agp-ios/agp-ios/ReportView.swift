@@ -15,13 +15,14 @@ struct ReportView: View {
         // Summary card
         Card {
           Text("Summary").font(.headline)
-          if isLoading { HStack { Spacer(); ProgressView(); Spacer() } }
-          else {
+          ZStack {
             SummaryCard(
               stats: statsValue,
               periodLabelText: periodLabel(days: app.periodDays),
               periodRangeText: periodDateRangeString(days: app.periodDays)
             )
+            .animation(.easeInOut(duration: 0.3), value: statsValue.meanMgdL)
+            if isLoading { ProgressView().padding() }
           }
         }
 

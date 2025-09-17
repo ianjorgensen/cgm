@@ -227,6 +227,8 @@
         { keys:'Shift+←/→', desc:'Jump by current span' },
         { keys:'↑/↓ or Wheel', desc:'Pan timeline' },
         { keys:'G', desc:'Toggle goals/time in TIR Detailed' },
+        { keys:'T', desc:'Targets: Tight ↔ General' },
+        { keys:'P', desc:'Targets: Pregnancy ↔ General' },
         { keys:'D', desc:'Toggle theme (Light/Dark)' },
         { keys:'H', desc:'Show this help' }
       ]
@@ -234,6 +236,8 @@
     const kb = initShortcuts({
       actions: {
         g: ()=>{ window.__showTime = !window.__showTime; try{ tirdetailed.setShowTime(window.__showTime) }catch{}; return true },
+        t: ()=>{ try{ const next = (preset==='tight' ? 'general' : 'tight'); preset = next; calendar.setPreset(next); summary.setPreset(next); tirdetailed.setPreset(next); strips.setPreset(next); agp.setPreset(next); }catch{}; return true },
+        p: ()=>{ try{ const next = (preset==='pregnancy' ? 'general' : 'pregnancy'); preset = next; calendar.setPreset(next); summary.setPreset(next); tirdetailed.setPreset(next); strips.setPreset(next); agp.setPreset(next); }catch{}; return true },
         d: (()=>{ const root=document.getElementById('themeRoot'); let dark = root.classList.contains('cgm-dark'); return ()=>{ dark=!dark; root.classList.toggle('cgm-dark', dark); try{ localStorage.setItem('cgm-theme', dark? 'dark':'light') }catch{}; try{ window.dispatchEvent(new Event('resize')) }catch{}; return true } })(),
         h: ()=>{ help.toggle(); return true }
       }

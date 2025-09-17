@@ -131,7 +131,7 @@ struct ContentView: View {
         }
 
       }
-      .navigationTitle("Ripple")
+      .navigationTitle("Settings")
       .tint(Color(red: 0.10, green: 0.60, blue: 0.31))
       .task { if serverEnabled { prepareServeFolderIfNeeded(); web.start(preferredPort: 8080) } }
       .sheet(isPresented: $isSharing) { if let url = shareURL { ShareSheet(items: [url]) { present("Saved/Shared cgm_data.js", section: .export) } } }

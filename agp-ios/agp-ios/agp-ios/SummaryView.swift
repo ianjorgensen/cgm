@@ -25,17 +25,20 @@ struct SummaryView: View {
       }
 
       Section {
-        if isLoading {
-          HStack { Spacer(); ProgressView(); Spacer() }
-        } else {
+        ZStack {
           HStack { Text("Time CGM Active"); Spacer(); Text(String(format: "%.1f%%", statsValue.activePercent)) }
+            .animation(.easeInOut(duration: 0.3), value: statsValue.activePercent)
+          if isLoading { HStack { Spacer(); ProgressView(); Spacer() } }
         }
       }
 
       Section {
         row(title: "Average Glucose", value: String(format: "%.1f mmol/L", statsValue.meanMmol), goal: "Goal: <8.6 mmol/L")
+          .animation(.easeInOut(duration: 0.3), value: statsValue.meanMmol)
         row(title: "Glucose Management Indicator (GMI)", value: String(format: "%.1f%%", statsValue.gmi), goal: "Goal: <7%")
+          .animation(.easeInOut(duration: 0.3), value: statsValue.gmi)
         row(title: "Glucose Variability (CV)", value: String(format: "%.1f%%", statsValue.cv), goal: "Goal: ≤36%")
+          .animation(.easeInOut(duration: 0.3), value: statsValue.cv)
       }
     }
     .navigationTitle(showFooter ? "Summary" : "")

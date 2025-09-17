@@ -40,14 +40,13 @@ struct TIRView: View {
         .padding(.horizontal)
       }
 
-      if isLoading {
-        ProgressView().frame(height: 240).padding(.horizontal)
-      } else if tirValue.total == 0 {
+      if tirValue.total == 0 && !isLoading {
         ContentUnavailableView("Not enough data", systemImage: "chart.bar", description: Text("Sync Health data and try again."))
       } else {
         bar
           .frame(height: 240)
           .padding(.horizontal)
+          .animation(.easeInOut(duration: 0.35), value: tirValue.total)
 
         legend
           .padding(.horizontal)
@@ -60,6 +59,7 @@ struct TIRView: View {
     .task { await refresh() }
     .onChange(of: app.periodDays) { _ in scheduleRefresh() }
     .onChange(of: hk.cached.count) { _ in scheduleRefresh() }
+    .overlay(alignment: .center) { if isLoading { ProgressView().controlSize(.regular).padding() } }
   }
 
   // MARK: - Views
