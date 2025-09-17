@@ -100,9 +100,17 @@
 
     // vertical end-of-day guides at day boundaries (right edge of each tile),
     // drawn per row with gaps around date numbers (not continuous across rows)
+    // Skip drawing these guides inside regions where both adjacent days are in the future.
+    const today = d3.timeDay.floor(new Date()).getTime()
     for (let c=1;c<=cols-1;c++){
       const xg = M.l + c*(cw+colGap)
       for (let r=0;r<rows;r++){
+        const rowStartIdx = r*cols
+        const idxLeft = rowStartIdx + (c-1)
+        const idxRight = rowStartIdx + c
+        const dsLeft = days[idxLeft]
+        const dsRight = days[idxRight]
+        if ((dsLeft!==undefined && dsLeft>today) && (dsRight!==undefined && dsRight>today)) continue
         const gy = M.t + r*(cellH + rowGap)
         d3.select(svg).append('line')
           .attr('x1', xg).attr('x2', xg)
@@ -113,7 +121,7 @@
     }
 
     // draw each cell (day)
-    const today = d3.timeDay.floor(new Date()).getTime()
+    // `today` computed above for guide lines reuse
     days.forEach((ds, idx)=>{
       const r = Math.floor(idx / cols)
       const c = idx % cols
@@ -199,7 +207,7 @@
           .attr('fill','#777').attr('font-size',10).attr('text-anchor','start')
           .text(dateLabel)
         if (r < rows - 1){
-          g.append('text').attr('x', cw/2).attr('y', cellH-2).attr('text-anchor','middle').attr('fill','#777').attr('font-size',10).text('12pm')
+        g.append('text').attr('x', cw/2).attr('y', cellH-2).attr('text-anchor','middle').attr('fill', cssVar('--cgm-axis-color', '#777')).attr('font-size',10).text('12pm')
         }
       }
 
@@ -224,7 +232,7 @@
 
 <style>
   :global(.day.hover .date-label) {
-    fill: #111 !important;
+    fill: var(--cgm-text, #111) !important;
     font-weight: 700;
   }
 </style>

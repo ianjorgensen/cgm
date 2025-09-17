@@ -1,6 +1,4 @@
-- refactor all widgets so they emit event when target changes or things change or get clicked like selection etc..
-
-- in demo make a clean shortcup section and enable all keyboard shortcuts from there and not the widget. add go to now shortcut
+- refactor all widgets so they emit event when target changes or things change or get clicked like selection etc.. move all shorcuts in calendar line to demo, try to. 
 
 - lets normilize font size and style, and buttons can be defined overwrittern in demo.html
 
@@ -8,18 +6,22 @@
 
 - lets remove calendar stacked from demo for now
 
-
-//
 - lets all button calendar on the side to click and on to go to today
 
 - make a nice calendar stacked of all the data demo on its oun with better label and options to hide data etc. 
+
+- update iphone app so it hosts the app and so that it uploads it to github
+
+= think about iphoen app design
 
 - expireiment making time navigation in the bottom of the page
 
 
 
+
 fonts 
 
+key, function, descriotion
 
 > Here’s a clean, reusable type scale based on the layout in your screenshot, grouped by where it would be used.
 

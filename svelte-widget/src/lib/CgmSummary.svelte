@@ -165,6 +165,7 @@
   .metric:last-child { border-bottom:none; }
   /* Emphasize right-side values */
   .metric > div:last-child { font-weight:700; color: var(--cgm-text, #111); }
+  .metric b { color: var(--cgm-title, var(--cgm-text, #111)); }
   .muted { color: var(--cgm-muted, #777); }
   .target-switch { display:flex; gap:8px; margin-top:4px; }
   .opt { border:0; background:none; cursor:pointer; font-size:11px; color: var(--cgm-muted, #555); padding:0 !important }

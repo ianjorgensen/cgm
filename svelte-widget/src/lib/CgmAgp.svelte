@@ -74,7 +74,15 @@
     const { series, samplesPerDay, dayCount } = computeSeries(i0, i1)
     const ys = series.flatMap(s=>[s.p05, s.p95]).filter(Number.isFinite)
     if (!ys.length){
-      root.append('text').attr('x',M.l).attr('y',H/2).text('Not enough data in selection to compute AGP');
+      const xC = W/2, yC = (M.t + (H - M.b))/2
+      root.append('text')
+        .attr('x', xC)
+        .attr('y', yC)
+        .attr('text-anchor','middle')
+        .attr('dominant-baseline','middle')
+        .attr('font-size', 56)
+        .attr('fill', cssVar('--cgm-muted', '#9aa3b2'))
+        .text('∅')
       return
     }
 
@@ -163,18 +171,30 @@
     const thCol = cssVar('--cgm-threshold', '#6ea77b')
     root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.high)).attr('y2',y(th.high)).attr('stroke', thCol).attr('stroke-width',1)
     root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.low)).attr('y2',y(th.low)).attr('stroke', thCol).attr('stroke-width',1)
-    const pale = cssVar('--cgm-grid', '#cccccc')
-    root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.vlow)).attr('y2',y(th.vlow)).attr('stroke', pale).attr('stroke-width',1)
-    root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.vhigh)).attr('y2',y(th.vhigh)).attr('stroke', pale).attr('stroke-width',1)
+    // Hide very-low/very-high pale guide lines to avoid a top border look
+    // const pale = cssVar('--cgm-grid', '#cccccc')
+    // root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.veryLow)).attr('y2',y(th.veryLow)).attr('stroke', pale).attr('stroke-width',1)
+    // root.append('line').attr('x1',M.l).attr('x2',W-M.r).attr('y1',y(th.veryHigh)).attr('y2',y(th.veryHigh)).attr('stroke', pale).attr('stroke-width',1)
 
     // axes + right-side percentile labels
     const perHr = 60*60*1000 / data.stepMs
     const ticks = d3.range(0, 24, 3).map(h=>Math.round(h*perHr))
     const fmtHr = h => (h===0||h===24) ? '12am' : (h<12?`${h}am`:(h===12?'12pm':`${h-12}pm`))
-    root.append('g').attr('transform',`translate(0,${H-M.b})`).call(d3.axisBottom(x).tickValues(ticks).tickFormat(t=>fmtHr(Math.round(t/perHr))).tickSizeOuter(0))
+    const axisColor = cssVar('--cgm-axis-color', '#555')
+    root.append('g')
+      .attr('transform',`translate(0,${H-M.b})`)
+      .call(d3.axisBottom(x).tickValues(ticks).tickFormat(t=>fmtHr(Math.round(t/perHr))).tickSizeOuter(0))
+      .call(g=> g.selectAll('text').attr('fill', axisColor) )
+      .call(g=> g.selectAll('line').attr('stroke', axisColor) )
+      .call(g=> g.select('.domain').attr('stroke', axisColor))
     const yTicks = [TH().veryLow, TH().low, TH().high, TH().veryHigh, (isMmol()?20:360)].filter(v=>v>=th.veryLow && v<=capMax)
     const fmtY = isMmol() ? (v=> (Math.round(v*10)/10)) : (v=> Math.round(v))
-    root.append('g').attr('transform',`translate(${M.l},0)`).call(d3.axisLeft(y).tickValues(yTicks).tickFormat(fmtY)).call(g=>g.select('.domain').remove())
+    root.append('g')
+      .attr('transform',`translate(${M.l},0)`)
+      .call(d3.axisLeft(y).tickValues(yTicks).tickFormat(fmtY))
+      .call(g=>g.selectAll('text').attr('fill', axisColor))
+      .call(g=>g.selectAll('line').attr('stroke', axisColor))
+      .call(g=>g.select('.domain').remove())
 
     // Right-side percentile labels 5,25,50,75,95 at last defined positions
     try {
@@ -182,7 +202,8 @@
       if (dayCount && dayCount > 2){
         const lastOf = key => { for (let i=series.length-1;i>=0;i--){ const v=series[i][key]; if (Number.isFinite(v)) return {t:series[i].t, v}; } return null }
         const pad = 41
-        const place = (pct, p)=>{ if (!p) return; const xP=Math.min(W-M.r-2, x(p.t)+pad); const yP=y(p.v); d3.select(svg).append('text').attr('x', xP+5).attr('y', yP).attr('dy','0.35em').attr('text-anchor','start').attr('fill','#000').attr('font-size',11).attr('font-weight', pct===50?700:400).text(`${pct}%`) }
+        const axisColor = cssVar('--cgm-axis-color', '#000')
+        const place = (pct, p)=>{ if (!p) return; const xP=Math.min(W-M.r-2, x(p.t)+pad); const yP=y(p.v); d3.select(svg).append('text').attr('x', xP+5).attr('y', yP).attr('dy','0.35em').attr('text-anchor','start').attr('fill', axisColor).attr('font-size',11).attr('font-weight', pct===50?700:400).text(`${pct}%`) }
         place(5,  lastOf('p05'))
         place(25, lastOf('p25'))
         place(50, lastOf('p50'))
@@ -195,6 +216,7 @@
     try {
       const padX = 6, r = 5, h = 16
       const green = cssVar('--cgm-in-range', '#1a9850')
+      const pillTextCol = cssVar('--cgm-pill-text', '#fff')
       const fmt = v => {
         if (isMmol()){
           const s = (Math.round(v*10)/10).toFixed(1)
@@ -208,7 +230,7 @@
         // compute text width by temporary text
         const tx = d3.select(svg).append('text')
           .attr('x', -9999).attr('y', -9999)
-          .attr('fill', '#fff').attr('font-size', 11).attr('font-weight', 700)
+          .attr('fill', pillTextCol).attr('font-size', 11).attr('font-weight', 700)
           .text(fmt(val))
         const bb = (tx.node()).getBBox()
         tx.remove()
@@ -225,7 +247,7 @@
         d3.select(svg).append('text')
           .attr('x', rectX + padX).attr('y', yPos)
           .attr('dy', '0.35em')
-          .attr('fill', '#fff').attr('font-size', 11).attr('font-weight', 700)
+          .attr('fill', pillTextCol).attr('font-size', 11).attr('font-weight', 700)
           .text(fmt(val))
       }
       pill(th.low); pill(th.high)

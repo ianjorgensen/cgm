@@ -467,9 +467,9 @@
   }
   .qbtn:hover, .navbtn:hover { background:#eee; }
   .qbtn.active {
-    background:#333 !important;
+    background: var(--cgm-text, #333) !important;
     color:#fff !important;
-    border-color:#333 !important;
+    border-color: var(--cgm-text, #333) !important;
   }
   .qbtn.active:hover { background:#333 !important; }
   

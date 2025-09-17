@@ -20,6 +20,8 @@
   export let selectionFill = 'transparent'
   // Toggle view: 'line' (continuous single row) or 'stacked' (years stacked)
   export let viewMode = 'line'
+  // Always hide vertical month grid lines in the line view
+  const SHOW_MONTH_GRID = false
 
   const dispatch = createEventDispatcher()
 
@@ -160,10 +162,12 @@
       const y = cur.getUTCFullYear(), m = cur.getUTCMonth()
       monthStart = Date.UTC(y, m+1, 1)
     }
-    for (let t = monthStart; t <= tVis1; ){ 
-      const x = Math.round(xFromTime(t))
-      ctx.beginPath(); ctx.moveTo(x, yBase+1); ctx.lineTo(x, yBase + H - 1); ctx.stroke()
-      const d = new Date(t); t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 1)
+    if (SHOW_MONTH_GRID){
+      for (let t = monthStart; t <= tVis1; ){ 
+        const x = Math.round(xFromTime(t))
+        ctx.beginPath(); ctx.moveTo(x, yBase+1); ctx.lineTo(x, yBase + H - 1); ctx.stroke()
+        const d = new Date(t); t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 1)
+      }
     }
 
     // (Year label moved to January tick on the bottom axis)
@@ -681,10 +685,11 @@
     background: none !important;
     cursor: pointer;
     opacity:0.5;
+    color: var(--cgm-text, #111);
   }
   .qbtn:hover, .navbtn:hover { opacity:0.75;}
   .qbtn.active {
-    color:#111 !important;
+    color: var(--cgm-text, #111) !important;
     opacity:1;
   }
   .qbtn.active:hover { }

@@ -169,9 +169,9 @@
     
     <!-- Y-axis values (hidden when no data) -->
     {#if present > 0}
-      <text x="35" y="{30 + yAxisPositions.low}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? currentThresholds.low.toFixed(1) : currentThresholds.low}</text>
-      <text x="35" y="{30 + yAxisPositions.high}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? currentThresholds.high.toFixed(1) : currentThresholds.high}</text>
-      <text x="35" y="{30 + yAxisPositions.vhigh}" font-family="Arial, sans-serif" font-size="10" fill="#666" text-anchor="end">{isMmol() ? currentThresholds.veryHigh.toFixed(1) : currentThresholds.veryHigh}</text>
+      <text x="35" y="{30 + yAxisPositions.low}" font-family="Arial, sans-serif" font-size="10" fill="var(--cgm-axis-color, #666)" text-anchor="end">{isMmol() ? currentThresholds.low.toFixed(1) : currentThresholds.low}</text>
+      <text x="35" y="{30 + yAxisPositions.high}" font-family="Arial, sans-serif" font-size="10" fill="var(--cgm-axis-color, #666)" text-anchor="end">{isMmol() ? currentThresholds.high.toFixed(1) : currentThresholds.high}</text>
+      <text x="35" y="{30 + yAxisPositions.vhigh}" font-family="Arial, sans-serif" font-size="10" fill="var(--cgm-axis-color, #666)" text-anchor="end">{isMmol() ? currentThresholds.veryHigh.toFixed(1) : currentThresholds.veryHigh}</text>
     {/if}
     
     <!-- Callout lines (rendered first so bars are on top) -->
@@ -231,60 +231,60 @@
     <!-- Very High -->
     <g transform="translate(0, {textPositions.vhigh - 40})">
       <text x="103" y="0" font-family="Arial, sans-serif">
-        <tspan font-size="12" font-weight="bold" fill="#333">Very High</tspan>
-        <tspan font-size="10" fill="#777"> {getRangeText('vhigh')}</tspan>
+        <tspan font-size="12" font-weight="bold" fill="var(--cgm-title, var(--cgm-text, #333))">Very High</tspan>
+        <tspan font-size="10" fill="var(--cgm-muted, #777)"> {getRangeText('vhigh')}</tspan>
       </text>
       <text x="{rightX}" y="0" font-family="Arial, sans-serif" text-anchor="end">
-        <tspan font-size="12" font-weight="bold" fill="#333">{Math.round(pct.vhigh)}%</tspan>
-        <tspan font-size="10" fill="#777"> {displayTime ? `(${formatTime(minutes.vhigh)})` : `Goal ${goalPct('veryHigh')}`}</tspan>
+        <tspan font-size="12" font-weight="bold" fill="var(--cgm-title, var(--cgm-text, #333))">{Math.round(pct.vhigh)}%</tspan>
+        <tspan font-size="10" fill="var(--cgm-muted, #777)"> {displayTime ? `(${formatTime(minutes.vhigh)})` : `Goal ${goalPct('veryHigh')}`}</tspan>
       </text>
     </g>
     
     <!-- High -->
     <g transform="translate(0, {textPositions.high - 40})">
       <text x="103" y="0" font-family="Arial, sans-serif">
-        <tspan font-size="12" font-weight="bold" fill="#333">High</tspan>
-        <tspan font-size="10" fill="#777"> {getRangeText('high')}</tspan>
+        <tspan font-size="12" font-weight="bold" fill="var(--cgm-title, var(--cgm-text, #333))">High</tspan>
+        <tspan font-size="10" fill="var(--cgm-muted, #777)"> {getRangeText('high')}</tspan>
       </text>
       <text x="{rightX}" y="0" font-family="Arial, sans-serif" text-anchor="end">
-        <tspan font-size="12" font-weight="bold" fill="#333">{Math.round(pct.high)}%</tspan>
-        <tspan font-size="10" fill="#777"> {displayTime ? `(${formatTime(minutes.high)})` : `Goal ${goalPct('high')}`}</tspan>
+        <tspan font-size="12" font-weight="bold" fill="var(--cgm-title, var(--cgm-text, #333))">{Math.round(pct.high)}%</tspan>
+        <tspan font-size="10" fill="var(--cgm-muted, #777)"> {displayTime ? `(${formatTime(minutes.high)})` : `Goal ${goalPct('high')}`}</tspan>
       </text>
     </g>
     
     <!-- Target -->
     <g transform="translate(0, {textPositions.targ - 40})">
       <text x="103" y="0" font-family="Arial, sans-serif">
-        <tspan font-size="12" font-weight="bold" fill="#333">Target</tspan>
-        <tspan font-size="10" fill="#777"> {getRangeText('targ')}</tspan>
+        <tspan font-size="12" font-weight="bold" fill="var(--cgm-title, var(--cgm-text, #333))">Target</tspan>
+        <tspan font-size="10" fill="var(--cgm-muted, #777)"> {getRangeText('targ')}</tspan>
       </text>
       <text x="{rightX}" y="0" font-family="Arial, sans-serif" text-anchor="end">
-        <tspan font-size="12" font-weight="bold" fill="#333">{Math.round(pct.targ)}%</tspan>
-        <tspan font-size="10" fill="#777"> {displayTime ? `(${formatTime(minutes.targ)})` : `Goal ${goalPct('inRange')}`}</tspan>
+        <tspan font-size="12" font-weight="bold" fill="var(--cgm-title, var(--cgm-text, #333))">{Math.round(pct.targ)}%</tspan>
+        <tspan font-size="10" fill="var(--cgm-muted, #777)"> {displayTime ? `(${formatTime(minutes.targ)})` : `Goal ${goalPct('inRange')}`}</tspan>
       </text>
     </g>
     
     <!-- Low -->
     <g transform="translate(0, {textPositions.low - 40})">
       <text x="103" y="0" font-family="Arial, sans-serif">
-        <tspan font-size="12" font-weight="bold" fill="#333">Low</tspan>
-        <tspan font-size="10" fill="#777"> {getRangeText('low')}</tspan>
+        <tspan font-size="12" font-weight="bold" fill="var(--cgm-title, var(--cgm-text, #333))">Low</tspan>
+        <tspan font-size="10" fill="var(--cgm-muted, #777)"> {getRangeText('low')}</tspan>
       </text>
       <text x="{rightX}" y="0" font-family="Arial, sans-serif" text-anchor="end">
-        <tspan font-size="12" font-weight="bold" fill="#333">{Math.round(pct.low)}%</tspan>
-        <tspan font-size="10" fill="#777"> {displayTime ? `(${formatTime(minutes.low)})` : `Goal ${goalPct('low')}`}</tspan>
+        <tspan font-size="12" font-weight="bold" fill="var(--cgm-title, var(--cgm-text, #333))">{Math.round(pct.low)}%</tspan>
+        <tspan font-size="10" fill="var(--cgm-muted, #777)"> {displayTime ? `(${formatTime(minutes.low)})` : `Goal ${goalPct('low')}`}</tspan>
       </text>
     </g>
     
     <!-- Very Low -->
     <g transform="translate(0, {textPositions.vlow - 40})">
       <text x="103" y="0" font-family="Arial, sans-serif">
-        <tspan font-size="12" font-weight="bold" fill="#333">Very Low</tspan>
-        <tspan font-size="10" fill="#777"> {getRangeText('vlow')}</tspan>
+        <tspan font-size="12" font-weight="bold" fill="var(--cgm-title, var(--cgm-text, #333))">Very Low</tspan>
+        <tspan font-size="10" fill="var(--cgm-muted, #777)"> {getRangeText('vlow')}</tspan>
       </text>
       <text x="340" y="0" font-family="Arial, sans-serif" text-anchor="end">
-        <tspan font-size="12" font-weight="bold" fill="#333">{Math.round(pct.vlow)}%</tspan>
-        <tspan font-size="10" fill="#777"> {displayTime ? `(${formatTime(minutes.vlow)})` : `Goal ${goalPct('veryLow')}`}</tspan>
+        <tspan font-size="12" font-weight="bold" fill="var(--cgm-title, var(--cgm-text, #333))">{Math.round(pct.vlow)}%</tspan>
+        <tspan font-size="10" fill="var(--cgm-muted, #777)"> {displayTime ? `(${formatTime(minutes.vlow)})` : `Goal ${goalPct('veryLow')}`}</tspan>
       </text>
     </g>
   </svg>

@@ -34,6 +34,7 @@
 
   /* Theming palettes */
   .cgm-theme {
+    background: white;
     --cgm-font: Inter, system-ui, sans-serif;
     --cgm-bg: #ffffff; --cgm-border: #e5e5e5; --cgm-grid: #eeeeee;
     --cgm-text: #111111; --cgm-muted: #666666;
@@ -43,16 +44,19 @@
     --cgm-low-strong: #d73027; --cgm-very-high-strong: #f46d43; --cgm-threshold: #2e7d32;
     --cgm-target-band-bg: #efefef; --cgm-context: #c7c7c7; --cgm-arrow: gray;
     --cgm-outside-light: #ededed; --cgm-outside-mid: #c4c4c4; --cgm-outside-dark: #b5b5b5;
+    /* AGP pill text color follows background so it's dark in dark mode, white in light */
+    --cgm-pill-text: var(--cgm-bg);
   }
   .cgm-theme.cgm-dark {
-    --cgm-bg: #0f1116; --cgm-border: #1f2430; --cgm-grid: #1b202b;
-    --cgm-text: #e6e6e6; --cgm-muted: #9aa3b2;
+    background: #282828;
+    --cgm-bg: #282828; --cgm-border: #3a3a3a; --cgm-grid: #ffffff;
+    --cgm-text: #ffffff; --cgm-muted: #ffffff; --cgm-axis-color: #ffffff; --cgm-title: #ffffff;
     --cgm-selection-fill: rgba(255,255,255,0.07); --cgm-selection-stroke: #e6e6e6;
     --cgm-very-low: #ff7a7a; --cgm-low: #ffb199; --cgm-in-range: #7fd3a3;
     --cgm-high: #ffd591; --cgm-very-high: #ffa07a;
     --cgm-low-strong: #ff5a4d; --cgm-very-high-strong: #ff7a4d; --cgm-threshold: #79c28a;
-    --cgm-target-band-bg: #1a1f2a; --cgm-context: #4a4f5c; --cgm-arrow: #80869a;
-    --cgm-outside-light: #2a2f3a; --cgm-outside-mid: #3a3f4a; --cgm-outside-dark: #4a4f5a;
+    --cgm-target-band-bg: #333333; --cgm-context: #cfcfcf; --cgm-arrow: #f0f0f0;
+    --cgm-outside-light: #3a3a3a; --cgm-outside-mid: #4a4a4a; --cgm-outside-dark: #5a5a5a;
   }
   /* Button removed; theme toggled via keyboard (D) */
 </style>
@@ -71,22 +75,23 @@
 
 <link rel="stylesheet" href="../dist/lib/style.css" />
 <script src="../dist/lib/cgm-tir.umd.js"></script>
-<script>
+<script type="module">
+  import { lastNDaysRange } from './utils/dateRange.js'
+  import { initShortcuts } from './utils/shortcuts.js'
+  import { mountHelp } from './utils/helpModal.js'
   // Combined demo: TIR calendar + Summary synced to the selection
+  // Initialize theme from localStorage before rendering widgets
+  try {
+    const root = document.getElementById('themeRoot')
+    const saved = localStorage.getItem('cgm-theme')
+    if (saved === 'dark' || saved === 'light') {
+      root.classList.toggle('cgm-dark', saved === 'dark')
+    }
+  } catch {}
   fetch('../../cgm-data/cgm_data.json').then(r=>r.json()).then(data => {
-    // Theme control (keyboard only: D toggles dark)
-    const themeRoot = document.getElementById('themeRoot')
-    let __dark = false
-    const applyTheme = ()=>{ themeRoot.classList.toggle('cgm-dark', __dark); try{ window.dispatchEvent(new Event('resize')) }catch{} }
-    
-    const DAY = 24*60*60*1000
-    const t0 = new Date(data.t0).getTime()
-    const tEnd = t0 + data.stepMs * (data.glucose.length - 1)
-    const endDay = Date.UTC(new Date(tEnd).getUTCFullYear(), new Date(tEnd).getUTCMonth(), new Date(tEnd).getUTCDate()) + (DAY - 1)
-    const startDay = Math.max(t0, endDay - 14*DAY + 1) // default: last 14 days
-    //we want this { start: startDay, end: endDay }
     let preset = 'general'
-    const calendar = window.createTirCalendarLine('viz', data, { initialRange: { start: startDay, end: endDay }, preset: preset, canvasVisible: true, monthLabels: true, dataVisible: true, selectionStroke: 'none', selectionFill: 'rgba(0,0,0,0.12)' })
+
+    const calendar = window.createTirCalendarLine('viz', data, { initialRange: lastNDaysRange(data, 14), preset: preset, canvasVisible: true, monthLabels: true, dataVisible: true, selectionStroke: 'none', selectionFill: 'rgba(0,0,0,0.12)' })
     // Summary stays in sync with calendar selection
     const summary = window.createCgmSummary('summary', data, { source: calendar, preset: preset })
     
@@ -103,85 +108,24 @@
     const strips  = window.createCgmStrips('strips', data, { source: calendar, preset: preset, colorWholeWeek: false  })
     const agp     = window.createCgmAgp('agp', data, { source: calendar, preset: preset })
 
-    window.addEventListener('keydown', (e)=>{
-      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : ''
-      if (['input','textarea','select'].includes(tag)) return
-      if (e.key.toLowerCase()==='g'){
-        // Toggle goals/time in TIR Detailed
-        window.__showTime = !window.__showTime
-        try { tirdetailed.setShowTime(window.__showTime) } catch {}
-        e.preventDefault()
-      } else if (e.key.toLowerCase()==='d'){
-        // Toggle theme (Light/Dark)
-        __dark = !__dark
-        applyTheme()
-        e.preventDefault()
+    // Help modal + keyboard shortcuts
+    const help = mountHelp(document.body, {
+      shortcuts: [
+        { keys:'1–6', desc:'Quick spans (1d…90d)' },
+        { keys:'←/→', desc:'Move selection by 1 day' },
+        { keys:'Shift+←/→', desc:'Jump by current span' },
+        { keys:'↑/↓ or Wheel', desc:'Pan timeline' },
+        { keys:'G', desc:'Toggle goals/time in TIR Detailed' },
+        { keys:'D', desc:'Toggle theme (Light/Dark)' },
+        { keys:'H', desc:'Show this help' }
+      ]
+    })
+    const kb = initShortcuts({
+      actions: {
+        g: ()=>{ window.__showTime = !window.__showTime; try{ tirdetailed.setShowTime(window.__showTime) }catch{}; return true },
+        d: (()=>{ const root=document.getElementById('themeRoot'); let dark = root.classList.contains('cgm-dark'); return ()=>{ dark=!dark; root.classList.toggle('cgm-dark', dark); try{ localStorage.setItem('cgm-theme', dark? 'dark':'light') }catch{}; try{ window.dispatchEvent(new Event('resize')) }catch{}; return true } })(),
+        h: ()=>{ help.toggle(); return true }
       }
     })
   })
-</script>
-
-<!-- Keyboard Shortcuts Modal (injected at runtime) -->
-<script>
-  (function(){
-    const overlay = document.createElement('div')
-    overlay.className = 'modal-overlay'
-    overlay.innerHTML = `
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="kbdTitle">
-        <header>
-          <h3 id=\"kbdTitle\">Keyboard Shortcuts</h3>
-          <button class=\"btn\" id=\"kbdClose\" aria-label=\"Close\">Close</button>
-        </header>
-        <div class=\"content\">
-          <div class=\"shortcuts-grid\">
-            <div><span class=\"kbd\">1</span></div><div>Set span to 1 day</div>
-            <div><span class=\"kbd\">2</span></div><div>Set span to 7 days</div>
-            <div><span class=\"kbd\">3</span></div><div>Set span to 14 days</div>
-            <div><span class=\"kbd\">4</span></div><div>Set span to 21 days</div>
-            <div><span class=\"kbd\">5</span></div><div>Set span to 30 days</div>
-            <div><span class=\"kbd\">6</span></div><div>Set span to 90 days</div>
-
-            <div><span class=\"kbd\">←</span> / <span class=\"kbd\">→</span></div><div>Move selection by 1 day</div>
-            <div><span class=\"kbd\">Shift</span> + <span class=\"kbd\">←</span>/<span class=\"kbd\">→</span></div><div>Jump selection by current span</div>
-            <div><span class=\"kbd\">↑</span> / <span class=\"kbd\">↓</span></div><div>Pan timeline (line view)</div>
-
-          
-          <div><span class=\"kbd\">G</span></div><div>Toggle goals/time in TIR Detailed</div>
-          <div><span class=\"kbd\">D</span></div><div>Toggle theme (Light/Dark)</div>
-
-            <div><span class=\"kbd\">H</span></div><div>Show/hide this help</div>
-          </div>
-          <hr style=\"margin:12px 0; border:none; border-top:1px solid #eee;\"/>
-          <div style=\"color:#666; font-size:12px; line-height:1.5;\">
-            Tips: Drag on the calendar to select; drag beyond the edges to auto-pan. Use the swap button to toggle stacked/line views.
-          </div>
-        </div>
-        <footer>
-          <button class=\"btn\" id=\"kbdClose2\">Close</button>
-        </footer>
-      </div>`
-    document.body.appendChild(overlay)
-    const toggleKbd = (show)=>{ overlay.classList.toggle('show', !!show) }
-    const closeModal = ()=> toggleKbd(false)
-    overlay.addEventListener('click', (e)=>{ if (e.target === overlay) closeModal() })
-    overlay.querySelector('#kbdClose').addEventListener('click', closeModal)
-    overlay.querySelector('#kbdClose2').addEventListener('click', closeModal)
-    // Floating keyboard button (bottom-right)
-    const fab = document.createElement('button')
-    fab.className = 'kbd-fab'
-    fab.setAttribute('title','Keyboard shortcuts (H)')
-    fab.setAttribute('aria-label','Keyboard shortcuts')
-    fab.textContent = '⌨'
-    fab.addEventListener('click', ()=> toggleKbd(true))
-    document.body.appendChild(fab)
-    window.addEventListener('keydown', (e)=>{
-      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : ''
-      if (['input','textarea','select'].includes(tag)) return
-      if (e.key === 'h' || e.key === 'H'){
-        const open = !overlay.classList.contains('show')
-        toggleKbd(open); e.preventDefault(); e.stopPropagation()
-      }
-      if (e.key === 'Escape' && overlay.classList.contains('show')){ closeModal(); e.preventDefault(); e.stopPropagation() }
-    })
-  })()
 </script>
