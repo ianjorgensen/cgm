@@ -5,7 +5,7 @@ struct FloatingControls: View {
   var onSettings: (() -> Void)
 
   private let order: [Int] = [7, 14, 30, 90]
-  private var items: [(String, Int)] { order.map { (label(for: $0), $0) } }
+  private var items: [(String, Int)] { order.map { (longLabel(for: $0), $0) } }
 
   var body: some View {
     ZStack {
@@ -66,11 +66,20 @@ struct FloatingControls: View {
 
   private func label(for days: Int) -> String {
     switch days {
-    case 7: return "1W"
-    case 14: return "2W"
-    case 30: return "1M"
-    case 90: return "3M"
+    case 7: return "1w"
+    case 14: return "2w"
+    case 30: return "1m"
+    case 90: return "3m"
     default: return "1W"
+    }
+  }
+  private func longLabel(for days: Int) -> String {
+    switch days {
+    case 7: return "1 week"
+    case 14: return "2 weeks"
+    case 30: return "1 month"
+    case 90: return "3 months"
+    default: return "1 week"
     }
   }
 }

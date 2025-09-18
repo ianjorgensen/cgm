@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build:lib": "vite build --config vite.lib.config.ts",
+    "build": "npm run build:lib && node scripts/build-demo.cjs",
     "build:ce": "vite build --config vite.ce.config.ts"
   },
   "dependencies": {
@@ -18,4 +19,3 @@
     "vite": "^5.4.0"
   }
 }
-

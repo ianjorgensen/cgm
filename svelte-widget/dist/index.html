@@ -2,7 +2,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="data:,">
-<title>Ripple</title>
+<title>CGM Demo</title>
 <style>
   body {
     font: 12px system-ui, sans-serif;
@@ -185,8 +185,8 @@
   <button id="helpFab" class="kbd-fab" title="Keyboard Shortcuts">⌨</button>
 </body>
 
-<link rel="stylesheet" href="../dist/lib/style.css" />
-<script src="../dist/lib/cgm-tir.umd.js"></script>
+<link rel="stylesheet" href="lib/style.css" />
+<script src="lib/cgm-tir.umd.js"></script>
 <script type="module">
   import { lastNDaysRange } from './utils/dateRange.js'
   import { initShortcuts } from './utils/shortcuts.js'
@@ -200,7 +200,7 @@
     }
   } catch {}
   // Use the built copy in dist when available
-  fetch('../dist/cgm_data.json').then(r=>r.json()).then(data => {
+  fetch('cgm_data.json').then(r=>r.json()).then(data => {
     let preset = 'general'
 
     const calendar = window.createTirCalendarLine('viz', data, { initialRange: lastNDaysRange(data, 14), preset: preset, canvasVisible: true, monthLabels: true, dataVisible: true, selectionStroke: 'none', selectionFill: 'rgba(0,0,0,0.12)' })

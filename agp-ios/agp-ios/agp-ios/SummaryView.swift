@@ -21,7 +21,7 @@ struct SummaryView: View {
       }
 
       Section(header: Text("Target Range")) {
-        HStack { Text("General"); Spacer(); Text("3.9–10 mmol/L").foregroundStyle(.secondary) }
+        HStack { Text(app.targetProfile.title); Spacer(); Text(app.targetProfile.rangeStringMmol).foregroundStyle(.secondary) }
       }
 
       Section {
@@ -33,8 +33,13 @@ struct SummaryView: View {
       }
 
       Section {
-        row(title: "Average Glucose", value: String(format: "%.1f mmol/L", statsValue.meanMmol), goal: "Goal: <8.6 mmol/L")
-          .animation(.easeInOut(duration: 0.3), value: statsValue.meanMmol)
+        if app.displayUnits == .mmolL {
+          row(title: "Average Glucose", value: String(format: "%.1f mmol/L", statsValue.meanMmol), goal: "Goal: <8.6 mmol/L")
+            .animation(.easeInOut(duration: 0.3), value: statsValue.meanMmol)
+        } else {
+          row(title: "Average Glucose", value: "\(Int(round(statsValue.meanMgdL))) mg/dL", goal: "Goal: <155 mg/dL")
+            .animation(.easeInOut(duration: 0.3), value: statsValue.meanMgdL)
+        }
         row(title: "Glucose Management Indicator (GMI)", value: String(format: "%.1f%%", statsValue.gmi), goal: "Goal: <7%")
           .animation(.easeInOut(duration: 0.3), value: statsValue.gmi)
         row(title: "Glucose Variability (CV)", value: String(format: "%.1f%%", statsValue.cv), goal: "Goal: ≤36%")

@@ -88,6 +88,28 @@ struct ContentView: View {
             .tint(Color(red: 0.10, green: 0.60, blue: 0.31))
         }
 
+        Section(header: Text("Target Range")) {
+          Picker("Profile", selection: $app.targetProfile) {
+            ForEach(AppSettings.TargetProfile.allCases) { p in
+              Text(p.title).tag(p)
+            }
+          }
+          .pickerStyle(.segmented)
+          let rangeStr = String(format: "%.1f - %.1f mmol/l", app.targetProfile.lowerMmol, app.targetProfile.upperMmol)
+          HStack {
+            Text("Goal 50%")
+            Spacer()
+            Text(rangeStr).foregroundStyle(.secondary)
+          }
+        }
+
+        Section(header: Text("Units")) {
+          Picker("Display Units", selection: $app.displayUnits) {
+            ForEach(AppSettings.DisplayUnits.allCases) { u in Text(u.title).tag(u) }
+          }
+          .pickerStyle(.segmented)
+        }
+
         Section(header: Text("Export"), footer: exportFooter) {
           Button { exportAction() } label: { Label("Export to File", systemImage: "square.and.arrow.up") }
             .buttonStyle(.plain)
